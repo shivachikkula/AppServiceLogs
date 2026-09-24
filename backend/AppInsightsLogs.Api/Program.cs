@@ -1,7 +1,6 @@
 using AppInsightsLogs.Api.Options;
 using AppInsightsLogs.Api.Services;
 using Azure.Core;
-using Azure.Identity;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Extensions.Options;
 
@@ -11,16 +10,7 @@ builder.Services.Configure<AppInsightsOptions>(builder.Configuration.GetSection(
 
 // Reading telemetry requires Microsoft Entra ID: the connection string only grants ingestion (write) access.
 builder.Services.AddSingleton<TokenCredential>(sp =>
-{
-    var options = sp.GetRequiredService<IOptions<AppInsightsOptions>>().Value;
-    return options.UsesServicePrincipal
-        ? new ClientSecretCredential(options.TenantId, options.ClientId, options.ClientSecret)
-        : new DefaultAzureCredential(new DefaultAzureCredentialOptions
-        {
-            // Allows a user-assigned managed identity to be selected via AZURE_CLIENT_ID.
-            ManagedIdentityClientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID"),
-        });
-});
+    CredentialFactory.Create(sp.GetRequiredService<IOptions<AppInsightsOptions>>().Value, builder.Environment));
 
 builder.Services.AddHttpClient<AppInsightsQueryClient>(client => client.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddScoped<TelemetryService>();

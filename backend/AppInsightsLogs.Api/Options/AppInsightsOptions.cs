@@ -18,8 +18,22 @@ public sealed class AppInsightsOptions
     /// </summary>
     public string? ApplicationId { get; set; }
 
-    /// <summary>Optional service principal. When empty, DefaultAzureCredential is used (managed identity, az login, VS, ...).</summary>
+    /// <summary>
+    /// Tenant that owns the Application Insights resource. Used by every credential type; set it when your
+    /// account belongs to several tenants (the most common cause of token failures when running locally).
+    /// </summary>
     public string? TenantId { get; set; }
+
+    /// <summary>
+    /// Which credential to use when no client secret is configured:
+    /// Default (DefaultAzureCredential), AzureCli, VisualStudio or ManagedIdentity.
+    /// </summary>
+    public string Credential { get; set; } = "Default";
+
+    /// <summary>Optional client id of a user-assigned managed identity.</summary>
+    public string? ManagedIdentityClientId { get; set; }
+
+    /// <summary>Optional service principal (together with TenantId).</summary>
     public string? ClientId { get; set; }
     public string? ClientSecret { get; set; }
 

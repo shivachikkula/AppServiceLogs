@@ -46,7 +46,10 @@ public sealed class AppInsightsQueryClient(
             logger.LogError(ex, "Failed to acquire a Microsoft Entra ID token for Application Insights");
             throw new AppInsightsQueryException(
                 HttpStatusCode.Unauthorized,
-                "Could not acquire an Azure access token. Configure a service principal (TenantId/ClientId/ClientSecret), enable a managed identity, or run 'az login'. " + ex.Message,
+                "Could not acquire an Azure access token for Application Insights. " + FlattenMessages(ex) +
+                " | Fixes: sign in with 'az login --tenant <tenant-id>' (or in Visual Studio: Tools > Options > Azure Service Authentication) " +
+                "using an account that has 'Monitoring Reader' on the resource, set ApplicationInsights:TenantId to the resource's tenant, " +
+                "or configure a service principal (TenantId/ClientId/ClientSecret).",
                 "AuthenticationFailed");
         }
 
@@ -71,6 +74,28 @@ public sealed class AppInsightsQueryClient(
         }
 
         return QueryTable.FromJson(tables[0]);
+    }
+
+    /// <summary>Joins the distinct messages of an exception and its inner exceptions into one line.</summary>
+    public static string FlattenMessages(Exception ex)
+    {
+        var messages = new List<string>();
+        for (Exception? current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is AggregateException aggregate)
+            {
+                messages.AddRange(aggregate.InnerExceptions.Select(FlattenMessages));
+                break;
+            }
+
+            var message = string.Join(' ', current.Message.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            if (message.Length > 0 && !messages.Any(m => m.Contains(message, StringComparison.Ordinal)))
+            {
+                messages.Add(message);
+            }
+        }
+
+        return string.Join(" -> ", messages);
     }
 
     private static async Task<JsonDocument?> ParseAsync(Stream stream, CancellationToken cancellationToken)

@@ -14,6 +14,6 @@ public sealed class StatusController(AppInsightsQueryClient client, IOptions<App
     public StatusResponse Get() => new(
         client.IsConfigured,
         client.ApplicationId,
-        options.Value.UsesServicePrincipal ? "ServicePrincipal" : "DefaultAzureCredential",
+        CredentialFactory.Describe(options.Value),
         options.Value.QueryEndpoint);
 }

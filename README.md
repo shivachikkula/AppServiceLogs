@@ -38,8 +38,10 @@ az ad sp create-for-rbac --name appinsights-log-viewer \
 "ApplicationInsights": {
   "ConnectionString": "InstrumentationKey=...;IngestionEndpoint=...;ApplicationId=...",
   "ApplicationId": "",          // optional override
-  "TenantId": "",               // optional service principal
-  "ClientId": "",
+  "TenantId": "",               // tenant of the App Insights resource (recommended)
+  "Credential": "Default",      // Default | AzureCli | VisualStudio | ManagedIdentity
+  "ManagedIdentityClientId": "",// user-assigned managed identity (optional)
+  "ClientId": "",               // optional service principal (with TenantId)
   "ClientSecret": "",
   "QueryEndpoint": "https://api.applicationinsights.io",
   "MaxRows": 500
@@ -55,6 +57,17 @@ dotnet user-secrets set "ApplicationInsights:ClientSecret" "<secret>"   # only f
 ```
 
 In Azure App Service, use application settings (for example `ApplicationInsights__ConnectionString`), preferably together with a managed identity instead of a client secret.
+
+## Troubleshooting: "Could not acquire an Azure access token"
+
+The API needs an Entra ID token before it can query Application Insights. If it can't get one, the page shows the error, including the underlying reason from Azure.Identity. The most common fixes:
+
+1. **Sign in with an account that can read the resource.** Run `az login --tenant <tenant-id>` and set `"Credential": "AzureCli"`. For Visual Studio, sign in under *Tools → Options → Azure Service Authentication* and set `"Credential": "VisualStudio"`.
+2. **Set `TenantId`** to the tenant that owns the Application Insights resource (Azure portal → Microsoft Entra ID → Overview → Tenant ID). An account that belongs to several tenants (for example, a personal Microsoft account plus a work directory) otherwise gets a token for the wrong tenant, and `DefaultAzureCredential` reports *"failed due to an unhandled exception"*.
+3. **Grant the role.** The signed-in identity needs **Monitoring Reader** on the Application Insights resource.
+4. **Or use a service principal** (`TenantId` + `ClientId` + `ClientSecret`). See the `az ad sp create-for-rbac` command above.
+
+In the Development environment, managed identity is skipped, because it only exists when running inside Azure.
 
 ## Run locally
 

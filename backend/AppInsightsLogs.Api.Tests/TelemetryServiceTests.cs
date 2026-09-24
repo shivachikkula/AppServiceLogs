@@ -64,6 +64,18 @@ public class TelemetryServiceTests
     }
 
     [Fact]
+    public void FlattenMessages_IncludesInnerExceptions()
+    {
+        var ex = new InvalidOperationException(
+            "DefaultAzureCredential authentication failed due to an unhandled exception: ",
+            new Exception("AADSTS50020: User account from identity provider does not exist in tenant.\nTrace ID: 1"));
+
+        Assert.Equal(
+            "DefaultAzureCredential authentication failed due to an unhandled exception: -> AADSTS50020: User account from identity provider does not exist in tenant. Trace ID: 1",
+            AppInsightsQueryClient.FlattenMessages(ex));
+    }
+
+    [Fact]
     public void BuildStackTrace_UsesParsedStackAndRawStack()
     {
         using var details = JsonDocument.Parse("""

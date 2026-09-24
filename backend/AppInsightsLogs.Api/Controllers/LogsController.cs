@@ -6,14 +6,14 @@ namespace AppInsightsLogs.Api.Controllers;
 
 [ApiController]
 [Route("api/logs")]
-public sealed class LogsController(TelemetryService telemetry) : ControllerBase
+public sealed class LogsController(TelemetryService telemetry) : TelemetryControllerBase
 {
     /// <summary>
     /// Returns recent telemetry across traces, requests, dependencies, exceptions and custom events.
     /// Poll with the returned <c>cursor</c> as <c>since</c> to receive only newly ingested items.
     /// </summary>
     [HttpGet("live")]
-    public Task<LiveLogsResponse> GetLive(
+    public Task<ActionResult<LiveLogsResponse>> GetLive(
         [FromQuery] DateTimeOffset? since,
         [FromQuery] int lookbackMinutes = 30,
         [FromQuery] string? types = null,
@@ -39,6 +39,6 @@ public sealed class LogsController(TelemetryService telemetry) : ControllerBase
             operationId,
             take);
 
-        return telemetry.GetLiveLogsAsync(query, cancellationToken);
+        return Run<LiveLogsResponse>(() => telemetry.GetLiveLogsAsync(query, cancellationToken));
     }
 }
