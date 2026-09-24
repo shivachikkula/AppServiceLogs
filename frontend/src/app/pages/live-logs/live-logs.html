@@ -1,0 +1,169 @@
+<section class="page-header">
+  <div>
+    <h1>Live logs</h1>
+    <p class="muted">
+      Tails traces, requests, dependencies, exceptions and custom events as they are ingested.
+      Application Insights usually has an ingestion delay of 1–3 minutes.
+    </p>
+  </div>
+  <div class="actions">
+    <span class="live-indicator" [class.paused]="paused()">
+      <span class="pulse"></span>{{ paused() ? 'Paused' : 'Live' }}
+    </span>
+    <button type="button" (click)="togglePause()">{{ paused() ? '▶ Resume' : '❚❚ Pause' }}</button>
+    <button type="button" class="secondary" (click)="clear()">Clear</button>
+  </div>
+</section>
+
+<form class="filters" (ngSubmit)="restart()">
+  <div class="types">
+    @for (t of itemTypes; track t.value) {
+      <label class="chip" [class.on]="selectedTypes().includes(t.value)">
+        <input
+          type="checkbox"
+          [checked]="selectedTypes().includes(t.value)"
+          (change)="toggleType(t.value, $any($event.target).checked)" />
+        {{ t.label }}
+        @if (counts()[t.value]) {
+          <span class="count">{{ counts()[t.value] }}</span>
+        }
+      </label>
+    }
+  </div>
+
+  <label>
+    Min severity
+    <select [ngModel]="minSeverity()" (ngModelChange)="minSeverity.set(+$event); restart()" name="minSeverity">
+      <option [ngValue]="0">All</option>
+      @for (s of severities; track s.value) {
+        @if (s.value > 0) {
+          <option [ngValue]="s.value">{{ s.label }}+</option>
+        }
+      }
+    </select>
+  </label>
+
+  <label>
+    Start from
+    <select [ngModel]="lookbackMinutes()" (ngModelChange)="lookbackMinutes.set(+$event); restart()" name="lookback">
+      @for (r of lookbacks; track r.minutes) {
+        <option [ngValue]="r.minutes">{{ r.label }}</option>
+      }
+    </select>
+  </label>
+
+  <label>
+    Refresh every
+    <select [ngModel]="intervalSeconds()" (ngModelChange)="intervalSeconds.set(+$event)" name="interval">
+      @for (i of intervals; track i) {
+        <option [ngValue]="i">{{ i }}s</option>
+      }
+    </select>
+  </label>
+
+  <label class="grow">
+    Search
+    <input type="search" placeholder="Text in message or operation" [ngModel]="search()" (ngModelChange)="search.set($event)" name="search" />
+  </label>
+
+  <label>
+    Role name
+    <input type="text" placeholder="cloud_RoleName" [ngModel]="roleName()" (ngModelChange)="roleName.set($event)" name="roleName" />
+  </label>
+
+  <label>
+    Operation id
+    <input type="text" placeholder="operation_Id" [ngModel]="operationId()" (ngModelChange)="operationId.set($event)" name="operationId" />
+  </label>
+
+  <button type="submit">Apply</button>
+</form>
+
+@if (error(); as message) {
+  <div class="banner error">{{ message }}</div>
+}
+
+<div class="status-line muted">
+  {{ entries().length }} entries
+  @if (lastPoll(); as t) {
+    · last checked {{ t | date: 'HH:mm:ss' }}
+  }
+  @if (loading()) {
+    · <span class="spinner"></span> loading…
+  }
+  @if (operationId()) {
+    · filtered to operation <code>{{ operationId() }}</code>
+    <button type="button" class="link" (click)="operationId.set(''); restart()">clear</button>
+  }
+</div>
+
+<div class="table-wrap">
+  <table class="log-table">
+    <thead>
+      <tr>
+        <th class="col-time">Timestamp</th>
+        <th class="col-type">Type</th>
+        <th class="col-sev">Severity</th>
+        <th>Message</th>
+        <th class="col-role">Role</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (e of entries(); track e.itemId) {
+        <tr
+          class="row {{ severityClass(e.severityLevel) }}"
+          [class.new]="newIds().has(e.itemId)"
+          [class.expanded]="expandedId() === e.itemId"
+          (click)="toggleExpanded(e.itemId)">
+          <td class="mono nowrap">{{ e.timestamp | date: 'MMM d, HH:mm:ss.SSS' }}</td>
+          <td><span class="badge type-{{ e.itemType }}">{{ e.itemType }}</span></td>
+          <td><span class="sev {{ severityClass(e.severityLevel) }}">{{ severityLabel(e.severityLevel) }}</span></td>
+          <td class="msg">{{ e.message }}</td>
+          <td class="nowrap">{{ e.roleName }}</td>
+        </tr>
+        @if (expandedId() === e.itemId) {
+          <tr class="details-row">
+            <td colspan="5">
+              <dl class="kv">
+                <dt>Message</dt>
+                <dd class="pre">{{ e.message }}</dd>
+                <dt>Operation</dt>
+                <dd>
+                  {{ e.operationName || '—' }}
+                  @if (e.operationId) {
+                    <code>{{ e.operationId }}</code>
+                    <button type="button" class="link" (click)="filterByOperation(e.operationId); $event.stopPropagation()">
+                      show all telemetry for this operation
+                    </button>
+                  }
+                </dd>
+                @if (e.resultCode) {
+                  <dt>Result code</dt>
+                  <dd>{{ e.resultCode }}</dd>
+                }
+                @if (e.durationMs !== null) {
+                  <dt>Duration</dt>
+                  <dd>{{ e.durationMs | number: '1.0-1' }} ms</dd>
+                }
+                <dt>Instance</dt>
+                <dd>{{ e.roleInstance || '—' }}</dd>
+                <dt>Ingested</dt>
+                <dd>{{ e.ingestedAt | date: 'MMM d, HH:mm:ss' }}</dd>
+                @if (e.customDimensions) {
+                  <dt>Custom dimensions</dt>
+                  <dd><pre>{{ prettyJson(e.customDimensions) }}</pre></dd>
+                }
+              </dl>
+            </td>
+          </tr>
+        }
+      } @empty {
+        <tr>
+          <td colspan="5" class="empty">
+            {{ loading() ? 'Loading…' : 'No telemetry found for the selected filters yet. New items will appear here automatically.' }}
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>

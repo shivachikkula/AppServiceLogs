@@ -1,0 +1,34 @@
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">◆</span>
+    App Insights Log Viewer
+  </div>
+  <nav>
+    <a routerLink="/live" routerLinkActive="active">Live logs</a>
+    <a routerLink="/exceptions" routerLinkActive="active">Exceptions</a>
+  </nav>
+  <div class="conn">
+    @if (status(); as s) {
+      @if (s.configured) {
+        <span class="dot ok"></span>
+        <span title="Authentication: {{ s.authenticationMode }}">App {{ s.applicationId }}</span>
+      } @else {
+        <span class="dot bad"></span> Not configured
+      }
+    } @else if (status() === null) {
+      <span class="dot bad"></span> API unreachable
+    }
+  </div>
+</header>
+
+@if (status()?.configured === false) {
+  <div class="banner error">
+    Application Insights is not configured. Set <code>ApplicationInsights:ConnectionString</code> in the API's
+    <code>appsettings.json</code> (or user secrets / environment variables). It must contain an
+    <code>ApplicationId=</code> segment, or set <code>ApplicationInsights:ApplicationId</code> explicitly.
+  </div>
+}
+
+<main>
+  <router-outlet />
+</main>
