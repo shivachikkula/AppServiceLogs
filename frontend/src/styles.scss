@@ -129,8 +129,9 @@ pre {
   gap: 24px;
   padding: 0 24px;
   height: 52px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: #2b4989 !important;
+  color: #ffffff;
+  border-bottom: 1px solid #22396b;
   position: sticky;
   top: 0;
   z-index: 10;
@@ -142,7 +143,7 @@ pre {
   gap: 8px;
 }
 .brand-mark {
-  color: var(--accent);
+  color: #a9c1ff;
 }
 .topbar nav {
   display: flex;
@@ -153,24 +154,24 @@ pre {
   display: flex;
   align-items: center;
   padding: 0 14px;
-  color: var(--muted);
+  color: rgb(255 255 255 / 0.75);
   text-decoration: none;
   border-bottom: 2px solid transparent;
   font-weight: 500;
 }
 .topbar nav a:hover {
-  color: var(--text);
+  color: #ffffff;
 }
 .topbar nav a.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: #ffffff;
+  border-bottom-color: #ffffff;
 }
 .conn {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--muted);
+  color: rgb(255 255 255 / 0.85);
   font-size: 12px;
 }
 .dot {

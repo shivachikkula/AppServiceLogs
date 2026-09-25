@@ -1,4 +1,4 @@
-# App Insights Log Viewer
+# OSSE Application Log Viewer
 
 A web app that reads telemetry from **Azure Application Insights** and shows it on two pages:
 
