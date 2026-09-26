@@ -149,6 +149,27 @@ dotnet publish -c Release -o ./publish      # add -p:SkipFrontend=true to publis
 
 Enable a system-assigned managed identity on the App Service and grant it the roles in [Permissions](#4-permissions-for-the-apis-identity). Set the settings above as App Service application settings, e.g. `AzureAdB2C__SpaClientId`, `KeyVault__VaultUri`, `ConnectionStrings__LogViewerDb` and `ApplicationInsights__Credential=ManagedIdentity`. Add the App Service URL as a redirect URI on the B2C SPA registration.
 
+## CI/CD and code scanning (GitHub Actions)
+
+| Workflow | Runs on | What it does |
+| --- | --- | --- |
+| [`ci.yml`](.github/workflows/ci.yml) | every PR, pushes to `main` | **API**: build with .NET code analyzers (warnings fail the build), unit tests, vulnerable NuGet package check. **Client**: ESLint (angular-eslint, incl. accessibility rules), production build, `npm audit`. |
+| [`codeql.yml`](.github/workflows/codeql.yml) | PRs to `main`, pushes to `main`, weekly | **CodeQL** security analysis (`security-extended` queries) for C# and TypeScript. Findings appear under *Security → Code scanning*. |
+| [`dependency-review.yml`](.github/workflows/dependency-review.yml) | every PR | Blocks PRs that add npm or NuGet packages with high or critical vulnerabilities. |
+| [`dependabot.yml`](.github/dependabot.yml) | weekly | PRs to update npm, NuGet and GitHub Actions dependencies. |
+| [`deploy.yml`](.github/workflows/deploy.yml) | pushes to `main`, manual | Tests, then `dotnet publish` (which also builds the Angular app into `wwwroot`) and deploys the package to **one App Service**. |
+
+All of these tools are free for public repositories. Also turn on **Settings → Code security**: *Dependabot alerts*, *Dependabot security updates*, *Secret scanning* and *Push protection* (free for public repos). Make `main` the **default branch** (Settings → General), because CodeQL's weekly scan and Dependabot run against the default branch.
+
+### Deployment setup
+
+1. **Create the App Service**: Linux, runtime stack **.NET 10**. Enable its system-assigned managed identity, grant the roles in [Permissions](#4-permissions-for-the-apis-identity), and add the app settings from [Configuration](#configuration), e.g. `AzureAdB2C__SpaClientId` and `KeyVault__VaultUri`.
+2. In GitHub, go to **Settings → Secrets and variables → Actions** and add the **variable** `AZURE_WEBAPP_NAME` (the App Service name).
+3. Choose how the workflow signs in to Azure:
+   - **Option A: OpenID Connect (recommended, no stored password).** Create an app registration or user-assigned managed identity. Add a *federated credential* for GitHub Actions: repository `shivachikkula/AppServiceLogs`, entity *Environment*, name `production`. Give it the **Website Contributor** role on the App Service. Then add the variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`.
+   - **Option B: publish profile (no Entra ID permissions needed).** In the App Service, turn on *Configuration → General settings → SCM Basic Auth Publishing Credentials*, then *Download publish profile*. Store the file's contents as the **secret** `AZURE_WEBAPP_PUBLISH_PROFILE`. The workflow uses this option when `AZURE_CLIENT_ID` is not set.
+4. Optionally add required reviewers to the `production` environment (Settings → Environments), so each deployment waits for approval.
+
 ## API
 
 All endpoints except `/api/auth-config` need a B2C access token.

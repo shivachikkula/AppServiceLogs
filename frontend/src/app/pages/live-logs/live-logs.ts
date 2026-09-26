@@ -19,7 +19,7 @@ export class LiveLogs implements OnInit {
   protected readonly appContext = inject(ApplicationContextService);
 
   /** Optional deep-link filter, e.g. /live?operationId=abc (bound from the query string). */
-  readonly operationIdParam = input<string | undefined>(undefined, { alias: 'operationId' });
+  readonly operationId = input<string | undefined>();
 
   protected readonly itemTypes: { value: ItemType; label: string }[] = [
     { value: 'trace', label: 'Traces' },
@@ -39,7 +39,7 @@ export class LiveLogs implements OnInit {
   protected intervalSeconds = signal(10);
   protected search = signal('');
   protected roleName = signal('');
-  protected operationId = signal('');
+  protected operationFilter = signal('');
 
   // State
   protected readonly entries = signal<LogEntry[]>([]);
@@ -85,9 +85,9 @@ export class LiveLogs implements OnInit {
   }
 
   ngOnInit(): void {
-    const operationId = this.operationIdParam();
+    const operationId = this.operationId();
     if (operationId) {
-      this.operationId.set(operationId);
+      this.operationFilter.set(operationId);
       this.lookbackMinutes.set(1440);
     }
   }
@@ -113,7 +113,7 @@ export class LiveLogs implements OnInit {
 
   protected filterByOperation(operationId: string | null): void {
     if (operationId) {
-      this.operationId.set(operationId);
+      this.operationFilter.set(operationId);
       this.restart();
     }
   }
@@ -158,7 +158,7 @@ export class LiveLogs implements OnInit {
         minSeverity: this.minSeverity(),
         search: this.search().trim(),
         roleName: this.roleName().trim(),
-        operationId: this.operationId().trim(),
+        operationId: this.operationFilter().trim(),
         take: initial ? 500 : 200,
       })
       .subscribe({

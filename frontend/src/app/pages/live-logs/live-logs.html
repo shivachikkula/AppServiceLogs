@@ -73,7 +73,7 @@
 
   <label>
     Operation id
-    <input type="text" placeholder="operation_Id" [ngModel]="operationId()" (ngModelChange)="operationId.set($event)" name="operationId" />
+    <input type="text" placeholder="operation_Id" [ngModel]="operationFilter()" (ngModelChange)="operationFilter.set($event)" name="operationId" />
   </label>
 
   <button type="submit">Apply</button>
@@ -91,9 +91,9 @@
   @if (loading()) {
     · <span class="spinner"></span> loading…
   }
-  @if (operationId()) {
-    · filtered to operation <code>{{ operationId() }}</code>
-    <button type="button" class="link" (click)="operationId.set(''); restart()">clear</button>
+  @if (operationFilter()) {
+    · filtered to operation <code>{{ operationFilter() }}</code>
+    <button type="button" class="link" (click)="operationFilter.set(''); restart()">clear</button>
   }
 </div>
 

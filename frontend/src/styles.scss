@@ -629,10 +629,15 @@ body > app-root > .banner {
   align-items: center;
 }
 
-.drawer-backdrop {
+button.drawer-backdrop {
   position: fixed;
   inset: 0;
+  height: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
   background: rgb(0 0 0 / 0.3);
+  cursor: default;
   z-index: 20;
 }
 .drawer {

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -36,14 +37,14 @@ public class TelemetryServiceTests
 
         var result = await service.GetLiveLogsAsync(
             "app-123",
-            new LiveLogsQuery(DateTimeOffset.Parse("2026-09-24T10:00:00Z"), 30, ["trace", "request"], 2, "boom\"", null, null, 100),
+            new LiveLogsQuery(DateTimeOffset.Parse("2026-09-24T10:00:00Z", CultureInfo.InvariantCulture), 30, ["trace", "request"], 2, "boom\"", null, null, 100),
             CancellationToken.None);
 
         Assert.Equal(2, result.Items.Count);
         Assert.Equal("b", result.Items[0].ItemId);
         Assert.Equal(12.5, result.Items[0].DurationMs);
         Assert.Equal("{\"k\":\"v\"}", result.Items[1].CustomDimensions);
-        Assert.Equal(DateTimeOffset.Parse("2026-09-24T10:01:30Z"), result.Cursor);
+        Assert.Equal(DateTimeOffset.Parse("2026-09-24T10:01:30Z", CultureInfo.InvariantCulture), result.Cursor);
 
         Assert.Equal("https://api.applicationinsights.io/v1/apps/app-123/query", handler.RequestUri);
         Assert.Equal("Bearer test-token", handler.Authorization);

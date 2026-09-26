@@ -1,5 +1,5 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, HostListener, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Subscription, forkJoin } from 'rxjs';
@@ -148,6 +148,7 @@ export class Exceptions {
     });
   }
 
+  @HostListener('document:keydown.escape')
   protected close(): void {
     this.selected.set(null);
     this.detail.set(null);
