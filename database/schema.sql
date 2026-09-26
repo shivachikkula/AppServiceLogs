@@ -1,4 +1,4 @@
--- OSSE Application Log Viewer: which user may view which application.
+-- OSSE Log Viewer: which user may view which application.
 -- AppKey is the name of the Key Vault secret that holds the application's Application Insights connection string.
 
 IF OBJECT_ID(N'dbo.UserApplications', N'U') IS NULL

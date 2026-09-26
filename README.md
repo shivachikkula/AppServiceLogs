@@ -1,4 +1,4 @@
-# OSSE Application Log Viewer
+# OSSE Log Viewer
 
 A web app that reads telemetry from **Azure Application Insights** for several applications and shows it on two pages. Users sign in with **Azure AD B2C**. Each user sees only the applications assigned to their email address.
 

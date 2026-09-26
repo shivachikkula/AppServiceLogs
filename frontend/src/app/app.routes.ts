@@ -6,13 +6,13 @@ export const routes: Routes = [
   {
     path: 'live',
     canActivate: [authGuard],
-    title: 'Live logs · OSSE Application Log Viewer',
+    title: 'Live logs · OSSE Log Viewer',
     loadComponent: () => import('./pages/live-logs/live-logs').then((m) => m.LiveLogs),
   },
   {
     path: 'exceptions',
     canActivate: [authGuard],
-    title: 'Exceptions · OSSE Application Log Viewer',
+    title: 'Exceptions · OSSE Log Viewer',
     loadComponent: () => import('./pages/exceptions/exceptions').then((m) => m.Exceptions),
   },
   { path: '**', redirectTo: 'live' },
