@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AppInsightsLogs.Api.Tests/AppInsightsLogs.Api.Tests.csproj" />
+  <Project Path="AppInsightsLogs.Api/AppInsightsLogs.Api.csproj" />
+</Solution>

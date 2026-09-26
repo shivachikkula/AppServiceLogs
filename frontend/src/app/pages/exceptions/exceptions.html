@@ -1,0 +1,193 @@
+<section class="page-header">
+  <div>
+    <h1>Exceptions</h1>
+    <p class="muted">Exceptions recorded by Application Insights, grouped by problem id.</p>
+  </div>
+  <div class="actions">
+    <label class="inline">
+      <input type="checkbox" [checked]="autoRefresh()" (change)="toggleAutoRefresh($any($event.target).checked)" />
+      Auto-refresh (30s)
+    </label>
+    <button type="button" (click)="load()" [disabled]="loading()">↻ Refresh</button>
+  </div>
+</section>
+
+<form class="filters" (ngSubmit)="load()">
+  <label>
+    Time range
+    <select [ngModel]="rangeMinutes()" (ngModelChange)="rangeMinutes.set(+$event); load()" name="range">
+      @for (r of ranges; track r.minutes) {
+        <option [ngValue]="r.minutes">{{ r.label }}</option>
+      }
+    </select>
+  </label>
+  <label class="grow">
+    Search
+    <input type="search" placeholder="Type, message, problem id or operation" [ngModel]="search()" (ngModelChange)="search.set($event)" name="search" />
+  </label>
+  <label>
+    Role name
+    <input type="text" placeholder="cloud_RoleName" [ngModel]="roleName()" (ngModelChange)="roleName.set($event)" name="roleName" />
+  </label>
+  <button type="submit">Apply</button>
+</form>
+
+@if (error(); as message) {
+  <div class="banner error">{{ message }}</div>
+}
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-value">{{ totals().count | number }}</div>
+    <div class="stat-label">Exceptions</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">{{ totals().problems | number }}</div>
+    <div class="stat-label">Distinct problems</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">{{ totals().operations | number }}</div>
+    <div class="stat-label">Affected operations</div>
+  </div>
+  <div class="stat muted small">
+    @if (loading()) {
+      <span class="spinner"></span> loading…
+    } @else if (lastRefresh(); as t) {
+      Updated {{ t | date: 'HH:mm:ss' }}
+    }
+  </div>
+</div>
+
+<h2>Top problems</h2>
+<div class="table-wrap">
+  <table class="log-table groups">
+    <thead>
+      <tr>
+        <th>Problem</th>
+        <th class="col-count">Count</th>
+        <th class="col-count">Operations</th>
+        <th class="col-time">Last seen</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (g of groups(); track g.problemId) {
+        <tr class="row" [class.selected]="problemId() === g.problemId" (click)="selectGroup(g.problemId)">
+          <td>
+            <div class="strong">{{ g.type }}</div>
+            <div class="muted small ellipsis">{{ g.message }}</div>
+            <div class="muted small mono ellipsis">{{ g.problemId }}</div>
+          </td>
+          <td>
+            <div class="bar-cell">
+              <span class="bar" [style.width.%]="(g.count / maxGroupCount()) * 100"></span>
+              <span>{{ g.count | number }}</span>
+            </div>
+          </td>
+          <td>{{ g.affectedOperations | number }}</td>
+          <td class="mono nowrap">{{ g.lastSeen | date: 'MMM d, HH:mm:ss' }}</td>
+        </tr>
+      } @empty {
+        <tr>
+          <td colspan="4" class="empty">{{ loading() ? 'Loading…' : 'No exceptions in this time range. 🎉' }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>
+
+<h2>
+  Occurrences
+  @if (problemId()) {
+    <span class="filter-pill">
+      problem: {{ problemId() }}
+      <button type="button" class="link" (click)="selectGroup(problemId()!)">✕</button>
+    </span>
+  }
+</h2>
+<div class="table-wrap">
+  <table class="log-table">
+    <thead>
+      <tr>
+        <th class="col-time">Timestamp</th>
+        <th>Exception</th>
+        <th class="col-role">Operation</th>
+        <th class="col-role">Role</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (e of exceptions(); track e.itemId) {
+        <tr class="row {{ severityClass(e.severityLevel) }}" [class.selected]="selected()?.itemId === e.itemId" (click)="open(e)">
+          <td class="mono nowrap">{{ e.timestamp | date: 'MMM d, HH:mm:ss.SSS' }}</td>
+          <td>
+            <div class="strong">{{ e.type }}</div>
+            <div class="msg">{{ e.message }}</div>
+          </td>
+          <td class="ellipsis">{{ e.operationName }}</td>
+          <td class="nowrap">{{ e.roleName }}</td>
+        </tr>
+      } @empty {
+        <tr>
+          <td colspan="4" class="empty">{{ loading() ? 'Loading…' : 'No exceptions match the selected filters.' }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>
+
+@if (selected(); as s) {
+  <div class="drawer-backdrop" (click)="close()"></div>
+  <aside class="drawer" role="dialog" aria-label="Exception details">
+    <header>
+      <div>
+        <div class="strong">{{ s.type }}</div>
+        <div class="muted small">{{ s.timestamp | date: 'MMM d, y, HH:mm:ss.SSS' }}</div>
+      </div>
+      <button type="button" class="secondary" (click)="close()">Close</button>
+    </header>
+
+    <dl class="kv">
+      <dt>Message</dt>
+      <dd class="pre">{{ s.message }}</dd>
+      @if (s.innermostMessage && s.innermostMessage !== s.message) {
+        <dt>Innermost message</dt>
+        <dd class="pre">{{ s.innermostMessage }}</dd>
+      }
+      <dt>Severity</dt>
+      <dd><span class="sev {{ severityClass(s.severityLevel) }}">{{ severityLabel(s.severityLevel) }}</span></dd>
+      <dt>Method</dt>
+      <dd class="mono">{{ s.method || '—' }}</dd>
+      <dt>Assembly</dt>
+      <dd class="mono">{{ s.assembly || '—' }}</dd>
+      <dt>Problem id</dt>
+      <dd class="mono">{{ s.problemId }}</dd>
+      <dt>Role</dt>
+      <dd>{{ s.roleName || '—' }} {{ s.roleInstance ? '(' + s.roleInstance + ')' : '' }}</dd>
+      <dt>Operation</dt>
+      <dd>
+        {{ s.operationName || '—' }}
+        @if (s.operationId) {
+          <code>{{ s.operationId }}</code>
+          <button type="button" class="link" (click)="viewOperation(s.operationId)">view all telemetry for this operation →</button>
+        }
+      </dd>
+    </dl>
+
+    <h3>
+      Stack trace
+      @if (detail()?.stackTrace) {
+        <button type="button" class="link" (click)="copy(detail()!.stackTrace)">copy</button>
+      }
+    </h3>
+    @if (detailLoading()) {
+      <p class="muted"><span class="spinner"></span> Loading details…</p>
+    } @else if (detailError(); as message) {
+      <div class="banner error">{{ message }}</div>
+    } @else if (detail(); as d) {
+      <pre class="stack">{{ d.stackTrace || 'No stack trace was recorded for this exception.' }}</pre>
+      @if (d.customDimensions) {
+        <h3>Custom dimensions</h3>
+        <pre>{{ prettyJson(d.customDimensions) }}</pre>
+      }
+    }
+  </aside>
+}

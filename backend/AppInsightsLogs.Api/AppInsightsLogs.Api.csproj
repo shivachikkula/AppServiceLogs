@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>appinsights-logs-api</UserSecretsId>
+    <FrontendRoot>$(MSBuildProjectDirectory)/../../frontend/</FrontendRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
+  </ItemGroup>
+
+  <!-- On 'dotnet publish', build the Angular app and ship it in wwwroot so one App Service hosts both.
+       Pass -p:SkipFrontend=true to publish the API only. -->
+  <Target Name="PublishFrontend" AfterTargets="ComputeFilesToPublish" Condition="'$(SkipFrontend)' != 'true'">
+    <Exec WorkingDirectory="$(FrontendRoot)" Command="npm ci" />
+    <Exec WorkingDirectory="$(FrontendRoot)" Command="npm run build" />
+    <ItemGroup>
+      <FrontendDistFiles Include="$(FrontendRoot)dist/frontend/browser/**" />
+      <ResolvedFileToPublish Include="@(FrontendDistFiles->'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>wwwroot/%(RecursiveDir)%(FileName)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+</Project>
