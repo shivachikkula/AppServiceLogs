@@ -7,25 +7,34 @@
     <a routerLink="/live" routerLinkActive="active">Live logs</a>
     <a routerLink="/exceptions" routerLinkActive="active">Exceptions</a>
   </nav>
+
+  @if (appContext.applications().length > 0) {
+    <label class="app-picker">
+      <span>Application</span>
+      <select [value]="appContext.selectedKey() ?? ''" (change)="onSelect($any($event.target).value)">
+        @for (app of appContext.applications(); track app.appKey) {
+          <option [value]="app.appKey" [selected]="app.appKey === appContext.selectedKey()">{{ app.applicationName }}</option>
+        }
+      </select>
+    </label>
+  }
+
   <div class="conn">
-    @if (status(); as s) {
-      @if (s.configured) {
-        <span class="dot ok"></span>
-        <span title="Authentication: {{ s.authenticationMode }}">App {{ s.applicationId }}</span>
-      } @else {
-        <span class="dot bad"></span> Not configured
-      }
-    } @else if (status() === null) {
-      <span class="dot bad"></span> API unreachable
+    @if (appContext.user(); as user) {
+      <span class="user" [title]="user.name ?? user.email">{{ user.email }}</span>
+    }
+    @if (auth.enabled && auth.isSignedIn()) {
+      <button type="button" class="topbar-button" (click)="auth.logout()">Sign out</button>
     }
   </div>
 </header>
 
-@if (status()?.configured === false) {
+@if (appContext.error(); as message) {
+  <div class="banner error">{{ message }}</div>
+} @else if (appContext.loaded() && appContext.applications().length === 0) {
   <div class="banner error">
-    Application Insights is not configured. Set <code>ApplicationInsights:ConnectionString</code> in the API's
-    <code>appsettings.json</code> (or user secrets / environment variables). It must contain an
-    <code>ApplicationId=</code> segment, or set <code>ApplicationInsights:ApplicationId</code> explicitly.
+    No applications are assigned to <strong>{{ appContext.user()?.email }}</strong>. Ask an administrator to add a row
+    for your email to the <code>UserApplications</code> table.
   </div>
 }
 

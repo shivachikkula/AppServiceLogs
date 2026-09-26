@@ -1,73 +1,117 @@
 # OSSE Application Log Viewer
 
-A web app that reads telemetry from **Azure Application Insights** and shows it on two pages:
+A web app that reads telemetry from **Azure Application Insights** for several applications and shows it on two pages. Users sign in with **Azure AD B2C**. Each user sees only the applications assigned to their email address.
 
 | Page | What it shows |
 | --- | --- |
 | **Live logs** (`/live`) | Traces, requests, dependencies, exceptions and custom events. The page polls every 5–60 s and adds newly ingested items at the top. You can filter by type, severity, text, role name and operation id, and pause or clear the view. Click a row to see its details. |
 | **Exceptions** (`/exceptions`) | Totals, the top problems grouped by `problemId`, and a list of individual exceptions. Click an exception to open its stack trace and custom dimensions, or jump to all telemetry for the same operation. |
 
+The **Application** dropdown in the header lists the applications assigned to the signed-in user. Both pages show data for the selected application. The last selection is remembered per user.
+
 ```
-frontend/   Angular 21 SPA (standalone components, signals)
+frontend/   Angular 21 SPA (standalone components, signals, MSAL.js for B2C sign-in)
 backend/    ASP.NET Core Web API on .NET 10 + unit tests
+database/   SQL script for the UserApplications table
 ```
 
-## How authentication works
+## How it works
 
-The Application Insights **connection string (or instrumentation key) can only be used to *send* telemetry**. Azure does not accept it for *reading* data, and Microsoft is retiring the older read-only "API keys" in favour of Entra ID. The app therefore works like this:
+```
+Browser ──(1) sign in──▶ Azure AD B2C
+   │  (2) GET /api/applications  + B2C access token
+   ▼
+API ──(3) SELECT … FROM UserApplications WHERE Email = <email claim>──▶ Azure SQL
+   │  (4) user picks an application → GET /api/logs/live?appKey=orders-api
+   │  (5) checks the (email, appKey) row exists, otherwise 403
+   │  (6) reads the Key Vault secret named <appKey> = the app's connection string
+   │  (7) takes the ApplicationId from the connection string
+   └──(8) queries Application Insights with the API's own Entra ID identity
+```
 
-1. **Connection string → which resource.** The API reads the `ApplicationId=` segment of your connection string to find the resource to query. If your connection string has no `ApplicationId`, copy the *Application ID* from the resource's **Configure → API Access** blade into `ApplicationInsights:ApplicationId`.
-2. **Microsoft Entra ID → permission to read.** The API gets a token for `https://api.applicationinsights.io` and calls `POST /v1/apps/{applicationId}/query` with KQL. It gets the token in one of two ways:
-   - **Service principal**: set `TenantId`, `ClientId` and `ClientSecret`.
-   - **`DefaultAzureCredential`** (when the three values above are empty): a managed identity when running in Azure App Service, or your `az login` / Visual Studio sign-in when running locally.
+- **The connection string never reaches the browser.** The browser only knows application names and app keys. The API looks up the secret itself, but only for an app key that is assigned to the signed-in user.
+- **The connection string only identifies the resource.** Azure does not accept an Application Insights connection string for *reading* data. The API reads its `ApplicationId` and then queries `https://api.applicationinsights.io` with its own Entra ID identity (a managed identity in Azure, or `az login` locally).
+- Connection strings are cached in memory for `KeyVault:CacheMinutes` (default 10), so Key Vault isn't called on every refresh.
 
-The identity needs the **Monitoring Reader** (or **Reader**) role on the Application Insights resource.
+## Azure setup
+
+### 1. Azure AD B2C (user sign-in)
+
+In your existing B2C tenant:
+
+1. **Register the SPA.** Go to *App registrations → New registration*. Set the platform to **Single-page application**, with redirect URI `http://localhost:4200/` for local development plus your App Service URL, e.g. `https://<app>.azurewebsites.net/`.
+2. **Expose an API.** The simplest setup uses the same app registration for the SPA and the API. The SPA then requests its own client id as the scope, and nothing else is needed. If you'd rather have a separate API registration, create one, add a scope under *Expose an API* (e.g. `Logs.Read`), grant the SPA permission to it, and set `ApiClientId`, `ApiScopes` and `RequiredScope` (below).
+3. **User flow.** In your sign-up/sign-in user flow (e.g. `B2C_1_signupsignin`), go to *Application claims* and tick **Email Addresses**. The API needs the email claim to find the user's applications.
+
+### 2. Azure SQL database
+
+Run [`database/schema.sql`](database/schema.sql) to create the `UserApplications` table, then add one row per user and application:
+
+```sql
+INSERT INTO dbo.UserApplications (Email, ApplicationName, AppKey) VALUES
+    (N'jane.doe@contoso.com', N'Orders API',   N'orders-api-appinsights'),
+    (N'jane.doe@contoso.com', N'Payments API', N'payments-api-appinsights');
+```
+
+| Column | Meaning |
+| --- | --- |
+| `Email` | The user's B2C email address, in lower case |
+| `ApplicationName` | Name shown in the dropdown |
+| `AppKey` | Name of the Key Vault secret holding that application's connection string (letters, digits and dashes) |
+
+### 3. Key Vault
+
+For each application, create a secret named after its `AppKey`. Its value is the application's full Application Insights **connection string** (Application Insights → Overview → Connection String). It must include the `ApplicationId=` part.
 
 ```bash
-# Example: create a service principal with read access to the resource
-az ad sp create-for-rbac --name appinsights-log-viewer \
-  --role "Monitoring Reader" \
-  --scopes /subscriptions/<sub-id>/resourceGroups/<rg>/providers/microsoft.insights/components/<app-insights-name>
+az keyvault secret set --vault-name <vault> --name orders-api-appinsights --value "InstrumentationKey=...;ApplicationId=..."
 ```
+
+### 4. Permissions for the API's identity
+
+The API uses one Azure identity: the App Service's managed identity in Azure, or your `az login` account locally. That identity needs:
+
+| Resource | Role |
+| --- | --- |
+| Key Vault | **Key Vault Secrets User** |
+| Each Application Insights resource | **Monitoring Reader** |
+| Azure SQL database | `db_datareader` (see the end of `schema.sql`), or use SQL authentication in the connection string |
+
+Users don't need any Azure roles. They only sign in with B2C.
 
 ## Configuration
 
 `backend/AppInsightsLogs.Api/appsettings.json`:
 
-```json
+```jsonc
+"ConnectionStrings": {
+  // Managed identity / az login:
+  "LogViewerDb": "Server=tcp:<server>.database.windows.net;Database=<db>;Authentication=Active Directory Default;Encrypt=True"
+},
+"AzureAdB2C": {
+  "Instance": "https://<tenant>.b2clogin.com",
+  "Domain": "<tenant>.onmicrosoft.com",
+  "SignUpSignInPolicyId": "B2C_1_signupsignin",
+  "SpaClientId": "<SPA app registration client id>",
+  "ApiClientId": "",       // only with a separate API registration (token audience)
+  "ApiScopes": [],         // e.g. ["https://<tenant>.onmicrosoft.com/<api>/Logs.Read"]
+  "RequiredScope": ""      // e.g. "Logs.Read"
+},
+"KeyVault": {
+  "VaultUri": "https://<vault>.vault.azure.net/",
+  "CacheMinutes": 10
+},
 "ApplicationInsights": {
-  "ConnectionString": "InstrumentationKey=...;IngestionEndpoint=...;ApplicationId=...",
-  "ApplicationId": "",          // optional override
-  "TenantId": "",               // tenant of the App Insights resource (recommended)
-  "Credential": "Default",      // Default | AzureCli | VisualStudio | ManagedIdentity
-  "ManagedIdentityClientId": "",// user-assigned managed identity (optional)
-  "ClientId": "",               // optional service principal (with TenantId)
-  "ClientSecret": "",
+  "TenantId": "",          // Azure (Entra ID) tenant of Key Vault / App Insights — not the B2C tenant
+  "Credential": "Default", // Default | AzureCli | VisualStudio | ManagedIdentity
+  "ManagedIdentityClientId": "",
+  "ClientId": "", "ClientSecret": "",
   "QueryEndpoint": "https://api.applicationinsights.io",
   "MaxRows": 500
 }
 ```
 
-Don't commit secrets. Locally, use user secrets:
-
-```bash
-cd backend/AppInsightsLogs.Api
-dotnet user-secrets set "ApplicationInsights:ConnectionString" "<connection string>"
-dotnet user-secrets set "ApplicationInsights:ClientSecret" "<secret>"   # only for a service principal
-```
-
-In Azure App Service, use application settings (for example `ApplicationInsights__ConnectionString`), preferably together with a managed identity instead of a client secret.
-
-## Troubleshooting: "Could not acquire an Azure access token"
-
-The API needs an Entra ID token before it can query Application Insights. If it can't get one, the page shows the error, including the underlying reason from Azure.Identity. The most common fixes:
-
-1. **Sign in with an account that can read the resource.** Run `az login --tenant <tenant-id>` and set `"Credential": "AzureCli"`. For Visual Studio, sign in under *Tools → Options → Azure Service Authentication* and set `"Credential": "VisualStudio"`.
-2. **Set `TenantId`** to the tenant that owns the Application Insights resource (Azure portal → Microsoft Entra ID → Overview → Tenant ID). An account that belongs to several tenants (for example, a personal Microsoft account plus a work directory) otherwise gets a token for the wrong tenant, and `DefaultAzureCredential` reports *"failed due to an unhandled exception"*.
-3. **Grant the role.** The signed-in identity needs **Monitoring Reader** on the Application Insights resource.
-4. **Or use a service principal** (`TenantId` + `ClientId` + `ClientSecret`). See the `az ad sp create-for-rbac` command above.
-
-In the Development environment, managed identity is skipped, because it only exists when running inside Azure.
+The Angular app has no settings of its own. It loads the B2C settings from `GET /api/auth-config` at startup, so one build works in every environment.
 
 ## Run locally
 
@@ -76,7 +120,8 @@ Prerequisites: .NET 10 SDK and Node.js 22+.
 ```bash
 # 1. API on http://localhost:5080
 cd backend/AppInsightsLogs.Api
-az login                      # if you are not using a service principal
+az login --tenant <azure-tenant-id>          # identity used for Key Vault + App Insights
+dotnet user-secrets set "ConnectionStrings:LogViewerDb" "<sql connection string>"
 dotnet run --launch-profile http
 
 # 2. UI on http://localhost:4200 (proxies /api to the backend)
@@ -84,6 +129,8 @@ cd frontend
 npm install
 npm start
 ```
+
+**Without B2C (development only):** leave the `AzureAdB2C` settings empty and set `AzureAdB2C:DevelopmentUserEmail` (e.g. in `appsettings.Development.json` or user secrets). Every request is then treated as signed in with that email. This only works when `ASPNETCORE_ENVIRONMENT=Development`. In any other environment the API refuses to start unless B2C is configured.
 
 Tests:
 
@@ -100,21 +147,39 @@ cd backend/AppInsightsLogs.Api
 dotnet publish -c Release -o ./publish      # add -p:SkipFrontend=true to publish the API only
 ```
 
-Enable a system-assigned managed identity on the App Service, give it **Monitoring Reader** on the Application Insights resource, and set `ApplicationInsights__ConnectionString`.
+Enable a system-assigned managed identity on the App Service and grant it the roles in [Permissions](#4-permissions-for-the-apis-identity). Set the settings above as App Service application settings, e.g. `AzureAdB2C__SpaClientId`, `KeyVault__VaultUri`, `ConnectionStrings__LogViewerDb` and `ApplicationInsights__Credential=ManagedIdentity`. Add the App Service URL as a redirect URI on the B2C SPA registration.
 
 ## API
 
+All endpoints except `/api/auth-config` need a B2C access token.
+
 | Endpoint | Description |
 | --- | --- |
-| `GET /api/status` | Whether the API is configured, the resolved application id, and the authentication mode |
-| `GET /api/logs/live?since=&lookbackMinutes=&types=trace,request&minSeverity=&search=&roleName=&operationId=&take=` | Recent telemetry. Pass the returned `cursor` back as `since` to get only newly ingested items. |
-| `GET /api/exceptions?rangeMinutes=&search=&problemId=&roleName=&operationId=&take=` | Exception occurrences |
-| `GET /api/exceptions/summary?rangeMinutes=&search=&roleName=` | Exceptions grouped by problem id |
-| `GET /api/exceptions/{itemId}?rangeMinutes=` | One exception with its reconstructed stack trace |
+| `GET /api/auth-config` | Public B2C settings for the SPA |
+| `GET /api/me` | The signed-in user's email and name |
+| `GET /api/applications` | `[{ applicationName, appKey }]` for the signed-in user |
+| `GET /api/logs/live?appKey=&since=&lookbackMinutes=&types=trace,request&minSeverity=&search=&roleName=&operationId=&take=` | Recent telemetry. Pass the returned `cursor` back as `since` to get only newly ingested items. |
+| `GET /api/exceptions?appKey=&rangeMinutes=&search=&problemId=&roleName=&operationId=&take=` | Exception occurrences |
+| `GET /api/exceptions/summary?appKey=&rangeMinutes=&search=&roleName=` | Exceptions grouped by problem id |
+| `GET /api/exceptions/{itemId}?appKey=&rangeMinutes=` | One exception with its reconstructed stack trace |
 
-Before any user input goes into a KQL query, it is escaped as a string literal. Numeric inputs and time ranges are clamped.
+The API returns **403** for an `appKey` that isn't assigned to the signed-in user. Before any user input goes into a KQL query, it is escaped as a string literal. Numeric inputs and time ranges are clamped.
+
+## Troubleshooting
+
+| Message | Fix |
+| --- | --- |
+| *Your sign-in token contains no email address* | Tick **Email Addresses** under the user flow's *Application claims*, then sign out and in again. |
+| *No applications are assigned to …* | Add rows for that email (lower case) to `UserApplications`. |
+| *Could not read the UserApplications table* | Check `ConnectionStrings:LogViewerDb`, the SQL firewall, and that `schema.sql` has been run. |
+| *No Key Vault secret named …* | Create the secret, named exactly like the `AppKey`. |
+| *…has no ApplicationId segment* | Store the full connection string from the Application Insights Overview page. |
+| *not allowed to read secrets from Key Vault* | Grant the API's identity **Key Vault Secrets User**. |
+| *Could not acquire an Azure access token* | Locally: run `az login --tenant <tenant-id>` and set `ApplicationInsights:TenantId` and `"Credential": "AzureCli"`. In Azure: enable the managed identity. Accounts in several tenants often fail with *"failed due to an unhandled exception"* until `TenantId` is set. |
+| *…does not have read access to this Application Insights resource* | Grant the API's identity **Monitoring Reader** on that resource. |
 
 ## Notes
 
-- **"Real time"**: Application Insights usually has an ingestion delay of 1–3 minutes. The live page tracks `ingestion_time()`, so items that arrive late or out of order are still picked up. Live Metrics has no public API for this.
+- **"Real time"**: Application Insights usually has an ingestion delay of 1–3 minutes. The live page tracks `ingestion_time()`, so items that arrive late or out of order are still picked up.
+- **Cost**: queries on Analytics-plan log tables are free. The running costs are App Service hosting and the Azure SQL database (the Basic tier is enough for this table).
 - To use a sovereign cloud, change `QueryEndpoint` (for example `https://api.applicationinsights.azure.cn`).

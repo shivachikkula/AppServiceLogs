@@ -1,7 +1,8 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, DestroyRef, OnInit, computed, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
+import { ApplicationContextService } from '../../core/application-context.service';
 import { prettyJson, severityClass, severityLabel } from '../../core/format';
 import { ItemType, LogEntry, SEVERITY_LABELS, TIME_RANGES } from '../../core/models';
 import { TelemetryApiService, describeError } from '../../core/telemetry-api.service';
@@ -15,6 +16,7 @@ const MAX_BUFFER = 2000;
 })
 export class LiveLogs implements OnInit {
   private readonly api = inject(TelemetryApiService);
+  protected readonly appContext = inject(ApplicationContextService);
 
   /** Optional deep-link filter, e.g. /live?operationId=abc (bound from the query string). */
   readonly operationIdParam = input<string | undefined>(undefined, { alias: 'operationId' });
@@ -67,6 +69,19 @@ export class LiveLogs implements OnInit {
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.stop());
+
+    // (Re)start tailing whenever a different application is selected in the header.
+    effect(() => {
+      const appKey = this.appContext.selectedKey();
+      untracked(() => {
+        if (appKey) {
+          this.restart();
+        } else {
+          this.stop();
+          this.entries.set([]);
+        }
+      });
+    });
   }
 
   ngOnInit(): void {
@@ -75,7 +90,6 @@ export class LiveLogs implements OnInit {
       this.operationId.set(operationId);
       this.lookbackMinutes.set(1440);
     }
-    this.restart();
   }
 
   protected toggleType(type: ItemType, checked: boolean): void {
@@ -126,12 +140,18 @@ export class LiveLogs implements OnInit {
 
   private poll(): void {
     clearTimeout(this.timer);
+    const appKey = this.appContext.selectedKey();
+    if (!appKey) {
+      this.loading.set(false);
+      return;
+    }
     const generation = this.generation;
     const initial = this.cursor === null;
     this.loading.set(true);
 
     this.request = this.api
       .getLiveLogs({
+        appKey,
         since: this.cursor,
         lookbackMinutes: this.lookbackMinutes(),
         types: this.selectedTypes(),

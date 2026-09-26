@@ -35,6 +35,7 @@ public class TelemetryServiceTests
         var (service, handler) = Create(LiveResponse);
 
         var result = await service.GetLiveLogsAsync(
+            "app-123",
             new LiveLogsQuery(DateTimeOffset.Parse("2026-09-24T10:00:00Z"), 30, ["trace", "request"], 2, "boom\"", null, null, 100),
             CancellationToken.None);
 
@@ -57,7 +58,7 @@ public class TelemetryServiceTests
         var (service, _) = Create("""{"error":{"code":"InsufficientAccessError","message":"denied"}}""", HttpStatusCode.Forbidden);
 
         var ex = await Assert.ThrowsAsync<AppInsightsQueryException>(() =>
-            service.GetExceptionsAsync(new ExceptionsQuery(60, null, null, null, null, 10), CancellationToken.None));
+            service.GetExceptionsAsync("app-123", new ExceptionsQuery(60, null, null, null, null, 10), CancellationToken.None));
 
         Assert.Equal(HttpStatusCode.Forbidden, ex.StatusCode);
         Assert.Contains("Monitoring Reader", ex.Message);
@@ -97,10 +98,7 @@ public class TelemetryServiceTests
 
     private static (TelemetryService Service, CapturingHandler Handler) Create(string body, HttpStatusCode status = HttpStatusCode.OK)
     {
-        var options = Microsoft.Extensions.Options.Options.Create(new AppInsightsOptions
-        {
-            ConnectionString = "InstrumentationKey=ik;ApplicationId=app-123",
-        });
+        var options = Microsoft.Extensions.Options.Options.Create(new AppInsightsOptions());
         var handler = new CapturingHandler(body, status);
         var client = new AppInsightsQueryClient(new HttpClient(handler), new FakeCredential(), options, NullLogger<AppInsightsQueryClient>.Instance);
         return (new TelemetryService(client, options), handler);

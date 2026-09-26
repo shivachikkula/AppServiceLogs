@@ -39,7 +39,7 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
 
     private int MaxRows => Math.Max(1, options.Value.MaxRows);
 
-    public async Task<LiveLogsResponse> GetLiveLogsAsync(LiveLogsQuery request, CancellationToken cancellationToken)
+    public async Task<LiveLogsResponse> GetLiveLogsAsync(string applicationId, LiveLogsQuery request, CancellationToken cancellationToken)
     {
         var serverTime = DateTimeOffset.UtcNow;
         var tables = request.ItemTypes
@@ -101,7 +101,7 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
         kql.AppendLine($"| top {take} by IngestedAt desc");
         kql.AppendLine("| project itemId, timestamp, IngestedAt, itemType, Severity, Message, cloud_RoleName, cloud_RoleInstance, operation_Name, operation_Id, resultCode = _resultCode, duration = _duration, customDimensions");
 
-        var table = await client.QueryAsync(kql.ToString(), TimeSpan.FromMinutes(request.LookbackMinutes + 5), cancellationToken);
+        var table = await client.QueryAsync(applicationId, kql.ToString(), TimeSpan.FromMinutes(request.LookbackMinutes + 5), cancellationToken);
 
         var items = table.Rows
             .Select(r => new LogEntry(
@@ -125,7 +125,7 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
         return new LiveLogsResponse(items, cursor, serverTime);
     }
 
-    public async Task<IReadOnlyList<ExceptionEntry>> GetExceptionsAsync(ExceptionsQuery request, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ExceptionEntry>> GetExceptionsAsync(string applicationId, ExceptionsQuery request, CancellationToken cancellationToken)
     {
         var take = Math.Clamp(request.Take, 1, MaxRows);
         var kql = new StringBuilder();
@@ -135,11 +135,11 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
         kql.AppendLine($"| top {take} by timestamp desc");
         kql.AppendLine(ExceptionProjection);
 
-        var table = await client.QueryAsync(kql.ToString(), TimeSpan.FromMinutes(request.RangeMinutes + 5), cancellationToken);
+        var table = await client.QueryAsync(applicationId, kql.ToString(), TimeSpan.FromMinutes(request.RangeMinutes + 5), cancellationToken);
         return table.Rows.Select(MapException).ToList();
     }
 
-    public async Task<IReadOnlyList<ExceptionGroup>> GetExceptionSummaryAsync(ExceptionsQuery request, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ExceptionGroup>> GetExceptionSummaryAsync(string applicationId, ExceptionsQuery request, CancellationToken cancellationToken)
     {
         var kql = new StringBuilder();
         kql.AppendLine("exceptions");
@@ -151,7 +151,7 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
             | top 50 by Count desc
             """);
 
-        var table = await client.QueryAsync(kql.ToString(), TimeSpan.FromMinutes(request.RangeMinutes + 5), cancellationToken);
+        var table = await client.QueryAsync(applicationId, kql.ToString(), TimeSpan.FromMinutes(request.RangeMinutes + 5), cancellationToken);
         return table.Rows
             .Select(r => new ExceptionGroup(
                 ProblemId: r.GetString("problemId") ?? "(none)",
@@ -164,7 +164,7 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
             .ToList();
     }
 
-    public async Task<ExceptionDetail?> GetExceptionAsync(string itemId, int rangeMinutes, CancellationToken cancellationToken)
+    public async Task<ExceptionDetail?> GetExceptionAsync(string applicationId, string itemId, int rangeMinutes, CancellationToken cancellationToken)
     {
         var kql = $"""
             exceptions
@@ -174,7 +174,7 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
             {ExceptionProjection}, details, customDimensions
             """;
 
-        var table = await client.QueryAsync(kql, TimeSpan.FromMinutes(rangeMinutes + 5), cancellationToken);
+        var table = await client.QueryAsync(applicationId, kql, TimeSpan.FromMinutes(rangeMinutes + 5), cancellationToken);
         var row = table.Rows.FirstOrDefault();
         if (row is null)
         {
