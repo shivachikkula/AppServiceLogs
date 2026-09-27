@@ -1,8 +1,9 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, HostListener, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Subscription, forkJoin } from 'rxjs';
+import { ApplicationContextService } from '../../core/application-context.service';
 import { prettyJson, severityClass, severityLabel } from '../../core/format';
 import { ExceptionDetail, ExceptionEntry, ExceptionGroup, TIME_RANGES } from '../../core/models';
 import { TelemetryApiService, describeError } from '../../core/telemetry-api.service';
@@ -12,8 +13,9 @@ import { TelemetryApiService, describeError } from '../../core/telemetry-api.ser
   imports: [FormsModule, DatePipe, DecimalPipe],
   templateUrl: './exceptions.html',
 })
-export class Exceptions implements OnInit {
+export class Exceptions {
   private readonly api = inject(TelemetryApiService);
+  protected readonly appContext = inject(ApplicationContextService);
   private readonly router = inject(Router);
 
   protected readonly ranges = TIME_RANGES;
@@ -59,18 +61,34 @@ export class Exceptions implements OnInit {
       this.loadSub?.unsubscribe();
       this.detailSub?.unsubscribe();
     });
-  }
 
-  ngOnInit(): void {
-    this.load();
+    // Reload whenever a different application is selected in the header.
+    effect(() => {
+      const appKey = this.appContext.selectedKey();
+      untracked(() => {
+        this.close();
+        this.problemId.set(null);
+        if (appKey) {
+          this.load();
+        } else {
+          this.groups.set([]);
+          this.exceptions.set([]);
+        }
+      });
+    });
   }
 
   protected load(): void {
+    const appKey = this.appContext.selectedKey();
+    if (!appKey) {
+      return;
+    }
     this.loadSub?.unsubscribe();
     this.loading.set(true);
     this.error.set(null);
 
     const filter = {
+      appKey,
       rangeMinutes: this.rangeMinutes(),
       search: this.search().trim(),
       roleName: this.roleName().trim(),
@@ -109,12 +127,16 @@ export class Exceptions implements OnInit {
   }
 
   protected open(entry: ExceptionEntry): void {
+    const appKey = this.appContext.selectedKey();
+    if (!appKey) {
+      return;
+    }
     this.selected.set(entry);
     this.detail.set(null);
     this.detailError.set(null);
     this.detailLoading.set(true);
     this.detailSub?.unsubscribe();
-    this.detailSub = this.api.getException(entry.itemId, this.rangeMinutes() + 60).subscribe({
+    this.detailSub = this.api.getException(appKey, entry.itemId, this.rangeMinutes() + 60).subscribe({
       next: (detail) => {
         this.detail.set(detail);
         this.detailLoading.set(false);
@@ -126,6 +148,7 @@ export class Exceptions implements OnInit {
     });
   }
 
+  @HostListener('document:keydown.escape')
   protected close(): void {
     this.selected.set(null);
     this.detail.set(null);

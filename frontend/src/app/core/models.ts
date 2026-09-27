@@ -23,6 +23,7 @@ export interface LiveLogsResponse {
 }
 
 export interface LiveLogsFilter {
+  appKey: string;
   since?: string | null;
   lookbackMinutes: number;
   types: ItemType[];
@@ -68,6 +69,7 @@ export interface ExceptionGroup {
 }
 
 export interface ExceptionsFilter {
+  appKey: string;
   rangeMinutes: number;
   search?: string;
   problemId?: string;
@@ -76,11 +78,14 @@ export interface ExceptionsFilter {
   take?: number;
 }
 
-export interface StatusResponse {
-  configured: boolean;
-  applicationId: string | null;
-  authenticationMode: string;
-  queryEndpoint: string;
+export interface ApplicationSummary {
+  applicationName: string;
+  appKey: string;
+}
+
+export interface UserInfo {
+  email: string;
+  name: string | null;
 }
 
 export const SEVERITY_LABELS: Record<number, string> = {

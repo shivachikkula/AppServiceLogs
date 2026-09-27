@@ -52,8 +52,15 @@ public sealed record ExceptionGroup(
     DateTimeOffset? FirstSeen,
     DateTimeOffset? LastSeen);
 
-public sealed record StatusResponse(
-    bool Configured,
-    string? ApplicationId,
-    string AuthenticationMode,
-    string QueryEndpoint);
+/// <summary>An application the signed-in user may view. The connection string never leaves the server.</summary>
+public sealed record ApplicationSummary(string ApplicationName, string AppKey);
+
+public sealed record UserInfo(string Email, string? Name);
+
+/// <summary>Settings the Angular app needs to sign users in with Azure AD B2C (all public values).</summary>
+public sealed record AuthConfigResponse(
+    bool Enabled,
+    string? ClientId,
+    string? Authority,
+    IReadOnlyList<string> KnownAuthorities,
+    IReadOnlyList<string> Scopes);
