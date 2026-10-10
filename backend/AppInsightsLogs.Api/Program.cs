@@ -26,6 +26,8 @@ builder.Services.AddScoped<TelemetryService>();
 builder.Services.AddScoped<ApplicationCatalog>();
 builder.Services.AddScoped<QueryService>();
 builder.Services.AddScoped<AuditLog>();
+builder.Services.AddScoped<OverviewService>();
+builder.Services.AddScoped<OperationService>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddScoped<DiagnosticsService>();
 builder.Services.AddHealthChecks().AddDbContextCheck<LogViewerDbContext>("database");

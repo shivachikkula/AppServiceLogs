@@ -1,0 +1,114 @@
+<section class="page-header">
+  <div>
+    <h1>Overview</h1>
+    <p class="muted">Health of <strong>{{ appContext.selected()?.applicationName ?? 'the selected application' }}</strong> at a glance.</p>
+  </div>
+  <div class="actions">
+    <label class="inline small">
+      Time range
+      <select [ngModel]="rangeMinutes()" (ngModelChange)="rangeMinutes.set(+$event)" name="range">
+        @for (r of ranges; track r.minutes) {
+          <option [ngValue]="r.minutes">{{ r.label }}</option>
+        }
+      </select>
+    </label>
+    <button type="button" class="secondary" (click)="refresh()" [disabled]="loading()">↻ Refresh</button>
+  </div>
+</section>
+
+@if (error(); as message) {
+  <div class="banner error">{{ message }}</div>
+}
+
+@if (!data() && loading()) {
+  <p class="muted"><span class="spinner"></span> Loading overview…</p>
+}
+
+@if (data(); as d) {
+  <div class="overview" [class.reloading]="loading()">
+    <div class="kpis">
+      @for (kpi of kpis(); track kpi.label) {
+        <div class="kpi">
+          <div class="kpi-label">{{ kpi.label }}</div>
+          <div class="kpi-value">{{ kpi.value }}</div>
+          @if (kpi.hint) {
+            <div class="kpi-hint muted">{{ kpi.hint }}</div>
+          }
+          @if (kpi.change) {
+            <div class="kpi-change" [class.bad]="kpi.tone === 'bad'" [class.good]="kpi.tone === 'good'">{{ kpi.change }}</div>
+          }
+        </div>
+      }
+    </div>
+
+    <div class="chart-grid">
+      <app-time-chart class="span-2" title="Requests" [timestamps]="timestamps()" [series]="requestSeries()" [format]="formatCount" [binMinutes]="d.binMinutes" />
+      <app-time-chart title="P95 response time" [timestamps]="timestamps()" [series]="latencySeries()" [format]="formatMs" [binMinutes]="d.binMinutes" />
+      <app-time-chart title="Exceptions" kind="bar" [timestamps]="timestamps()" [series]="exceptionSeries()" [format]="formatCount" [binMinutes]="d.binMinutes" />
+    </div>
+
+    <div class="top-grid">
+      <section class="top-card">
+        <h2>Top failing operations</h2>
+        <table class="log-table">
+          <thead>
+            <tr><th scope="col">Operation</th><th scope="col" class="num">Failed</th><th scope="col" class="num">Failure rate</th></tr>
+          </thead>
+          <tbody>
+            @for (op of d.topFailing; track op.operation) {
+              <tr>
+                <td class="ellipsis" [title]="op.operation">{{ op.operation }}</td>
+                <td class="num">{{ op.failed | number }}</td>
+                <td class="num">{{ (100 * op.failed) / op.total | number: '1.0-1' }}%</td>
+              </tr>
+            } @empty {
+              <tr><td colspan="3" class="empty">No failed requests. ✓</td></tr>
+            }
+          </tbody>
+        </table>
+      </section>
+
+      <section class="top-card">
+        <h2>Slowest operations (P95)</h2>
+        <table class="log-table">
+          <thead>
+            <tr><th scope="col">Operation</th><th scope="col" class="num">P95</th><th scope="col" class="num">Requests</th></tr>
+          </thead>
+          <tbody>
+            @for (op of d.slowest; track op.operation) {
+              <tr>
+                <td class="ellipsis" [title]="op.operation">{{ op.operation }}</td>
+                <td class="num">{{ formatMs(op.p95DurationMs) }}</td>
+                <td class="num">{{ op.count | number }}</td>
+              </tr>
+            } @empty {
+              <tr><td colspan="3" class="empty">Not enough requests in this range.</td></tr>
+            }
+          </tbody>
+        </table>
+      </section>
+
+      <section class="top-card">
+        <h2>Top exceptions</h2>
+        <table class="log-table">
+          <thead>
+            <tr><th scope="col">Exception</th><th scope="col" class="num">Count</th></tr>
+          </thead>
+          <tbody>
+            @for (ex of d.topExceptions; track $index) {
+              <tr>
+                <td>
+                  <div class="strong ellipsis" [title]="ex.type">{{ ex.type }}</div>
+                  <div class="muted small ellipsis" [title]="ex.message ?? ''">{{ ex.message }}</div>
+                </td>
+                <td class="num">{{ ex.count | number }}</td>
+              </tr>
+            } @empty {
+              <tr><td colspan="2" class="empty">No exceptions. ✓</td></tr>
+            }
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+}

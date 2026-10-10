@@ -190,3 +190,56 @@ export interface DiagnosticCheck {
   status: 'ok' | 'warning' | 'error';
   detail: string;
 }
+
+export interface OverviewKpis {
+  requests: number;
+  failedRequests: number;
+  avgDurationMs: number | null;
+  p95DurationMs: number | null;
+  exceptions: number;
+  failedDependencies: number;
+  previousRequests: number;
+  previousFailedRequests: number;
+  previousExceptions: number;
+}
+
+export interface OverviewPoint {
+  timestamp: string;
+  requests: number;
+  failedRequests: number;
+  p95DurationMs: number | null;
+  exceptions: number;
+}
+
+export interface OverviewResponse {
+  rangeMinutes: number;
+  binMinutes: number;
+  kpis: OverviewKpis;
+  series: OverviewPoint[];
+  topFailing: { operation: string; failed: number; total: number }[];
+  slowest: { operation: string; count: number; p95DurationMs: number }[];
+  topExceptions: { type: string; message: string | null; problemId: string | null; count: number }[];
+}
+
+export interface OperationItem {
+  itemId: string;
+  kind: 'request' | 'dependency' | 'exception' | 'trace' | 'event';
+  timestamp: string;
+  id: string | null;
+  parentId: string | null;
+  name: string;
+  detail: string | null;
+  target: string | null;
+  dependencyType: string | null;
+  resultCode: string | null;
+  success: boolean | null;
+  durationMs: number | null;
+  severityLevel: number | null;
+  roleName: string | null;
+}
+
+export interface OperationTimeline {
+  operationId: string;
+  items: OperationItem[];
+  truncated: boolean;
+}

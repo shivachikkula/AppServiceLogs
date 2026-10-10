@@ -1,0 +1,161 @@
+<section class="page-header">
+  <div>
+    <h1>Operation timeline</h1>
+    <p class="muted">
+      Operation <code>{{ operationId() }}</code> in {{ appContext.selected()?.applicationName ?? 'the selected application' }} ·
+      <a routerLink="/live" [queryParams]="{ operationId: operationId() }">view as log list</a>
+    </p>
+  </div>
+</section>
+
+@if (error(); as message) {
+  <div class="banner error">{{ message }}</div>
+}
+@if (loading()) {
+  <p class="muted"><span class="spinner"></span> Loading operation…</p>
+}
+
+@if (timeline(); as t) {
+  @if (t.rows.length === 0 && !loading()) {
+    <div class="banner error">
+      Nothing was found for this operation id in the selected application. It may belong to another application, or be
+      older than the search window.
+    </div>
+  } @else {
+    <div class="op-summary">
+      <div class="kpi">
+        <div class="kpi-label">Operation</div>
+        <div class="kpi-value small-value" [title]="t.root?.name ?? ''">{{ t.root?.name }}</div>
+        <div class="kpi-hint muted">{{ t.root?.timestamp | date: 'MMM d, y, HH:mm:ss.SSS' }}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Total duration</div>
+        <div class="kpi-value">{{ formatDuration(t.totalMs) }}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Items</div>
+        <div class="kpi-value">{{ t.rows.length }}</div>
+        @if (truncated()) {
+          <div class="kpi-hint muted">showing the first 2,000</div>
+        }
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Failures</div>
+        <div class="kpi-value" [class.bad-value]="t.failedCount > 0">{{ t.failedCount > 0 ? '✗ ' + t.failedCount : '✓ 0' }}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Services</div>
+        <div class="kpi-value small-value">{{ t.roles.join(', ') || '—' }}</div>
+      </div>
+    </div>
+
+    <div class="op-toolbar">
+      <span class="op-legend" aria-label="Legend">
+        <span><span class="swatch span-request"></span> Request</span>
+        <span><span class="swatch span-dependency"></span> Dependency</span>
+        <span><span class="swatch span-failed"></span> ✗ Failed</span>
+        <span><span class="marker-exception" aria-hidden="true">◆</span> Exception</span>
+        <span><span class="marker-trace" aria-hidden="true">●</span> Trace / event</span>
+      </span>
+      <label class="inline small">
+        <input type="checkbox" [checked]="showTraces()" (change)="showTraces.set($any($event.target).checked)" />
+        Show traces
+      </label>
+    </div>
+
+    <div class="table-wrap waterfall-wrap">
+      <table class="waterfall">
+        <thead>
+          <tr>
+            <th scope="col" class="wf-name">Name</th>
+            <th scope="col" class="wf-bar">
+              <div class="wf-axis">
+                @for (tick of axis(); track $index) {
+                  <span [style.left.%]="tick.pct">{{ tick.label }}</span>
+                }
+              </div>
+            </th>
+            <th scope="col" class="wf-duration">Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of visibleRows(); track row.item.itemId) {
+            <tr
+              class="wf-row"
+              [class.selected]="selected()?.item?.itemId === row.item.itemId"
+              [class.failed]="row.failed"
+              tabindex="0"
+              (click)="select(row)"
+              (keydown.enter)="select(row)"
+              (keydown.space)="select(row); $event.preventDefault()">
+              <td class="wf-name">
+                <div class="wf-label" [style.padding-left.px]="row.depth * 16">
+                  <span class="badge kind-{{ row.item.kind }}">{{ kindLabel(row.item.kind) }}</span>
+                  @if (row.failed) {
+                    <span class="wf-failed" aria-label="failed">✗</span>
+                  }
+                  <span class="wf-text" [title]="row.item.name">{{ row.item.name }}</span>
+                </div>
+              </td>
+              <td class="wf-bar">
+                <div class="wf-track">
+                  @for (tick of axis(); track $index) {
+                    <span class="wf-gridline" [style.left.%]="tick.pct"></span>
+                  }
+                  @if (row.isSpan) {
+                    <span
+                      class="wf-span"
+                      [class.span-request]="row.item.kind === 'request' && !row.failed"
+                      [class.span-dependency]="row.item.kind === 'dependency' && !row.failed"
+                      [class.span-failed]="row.failed"
+                      [style.left.%]="row.offsetPct"
+                      [style.width.%]="row.widthPct"></span>
+                  } @else {
+                    <span class="wf-marker" [class.marker-exception]="row.item.kind === 'exception'" [class.marker-trace]="row.item.kind !== 'exception'" [style.left.%]="row.offsetPct">
+                      {{ row.item.kind === 'exception' ? '◆' : '●' }}
+                    </span>
+                  }
+                </div>
+              </td>
+              <td class="wf-duration mono">{{ row.isSpan ? formatDuration(row.item.durationMs) : '+' + formatDuration(row.startMs) }}</td>
+            </tr>
+            @if (selected()?.item?.itemId === row.item.itemId) {
+              <tr class="details-row">
+                <td colspan="3">
+                  <dl class="kv">
+                    <dt>Type</dt>
+                    <dd>{{ kindLabel(row.item.kind) }}{{ row.item.dependencyType ? ' · ' + row.item.dependencyType : '' }}</dd>
+                    <dt>Name</dt>
+                    <dd class="pre">{{ row.item.name }}</dd>
+                    @if (row.item.detail) {
+                      <dt>{{ row.item.kind === 'request' ? 'URL' : row.item.kind === 'dependency' ? 'Command / data' : 'Message' }}</dt>
+                      <dd class="pre mono">{{ row.item.detail }}</dd>
+                    }
+                    @if (row.item.target) {
+                      <dt>Target</dt>
+                      <dd class="mono">{{ row.item.target }}</dd>
+                    }
+                    @if (row.item.resultCode) {
+                      <dt>Result</dt>
+                      <dd>{{ row.item.resultCode }} {{ row.item.success === false ? '✗ failed' : row.item.success ? '✓' : '' }}</dd>
+                    }
+                    @if (row.item.severityLevel !== null) {
+                      <dt>Severity</dt>
+                      <dd>{{ severityLabels[row.item.severityLevel] }}</dd>
+                    }
+                    <dt>Started</dt>
+                    <dd>{{ row.item.timestamp | date: 'MMM d, HH:mm:ss.SSS' }} (+{{ formatDuration(row.startMs) || '0 ms' }})</dd>
+                    @if (row.item.roleName) {
+                      <dt>Service</dt>
+                      <dd>{{ row.item.roleName }}</dd>
+                    }
+                  </dl>
+                </td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+}

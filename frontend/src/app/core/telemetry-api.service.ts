@@ -7,6 +7,8 @@ import {
   GeneratedQuery,
   KqlResult,
   KqlSchema,
+  OperationTimeline,
+  OverviewResponse,
   ExceptionDetail,
   ExceptionEntry,
   ExceptionGroup,
@@ -26,6 +28,16 @@ export class TelemetryApiService {
 
   getApplications(): Observable<ApplicationSummary[]> {
     return this.http.get<ApplicationSummary[]>('/api/applications');
+  }
+
+  getOverview(appKey: string, rangeMinutes: number): Observable<OverviewResponse> {
+    return this.http.get<OverviewResponse>('/api/overview', { params: toParams({ appKey, rangeMinutes }) });
+  }
+
+  getOperation(appKey: string, operationId: string, around?: string | null): Observable<OperationTimeline> {
+    return this.http.get<OperationTimeline>(`/api/operations/${encodeURIComponent(operationId)}`, {
+      params: toParams({ appKey, around: around ?? undefined }),
+    });
   }
 
   getFeatures(): Observable<FeatureFlags> {

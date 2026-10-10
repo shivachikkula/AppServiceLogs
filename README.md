@@ -4,8 +4,10 @@ A web app that reads telemetry from **Azure Application Insights** for several a
 
 | Page | What it shows |
 | --- | --- |
+| **Overview** (`/overview`, the start page) | Health at a glance for the selected range: requests, failure rate, P95 response time, exceptions and failed dependency calls, each compared with the previous period. Trend charts for requests vs failed requests, P95 latency and exceptions; hover or use the arrow keys for values, or switch any chart to a table. Top failing operations, slowest operations and top exceptions. |
 | **Live logs** (`/live`) | Traces, requests, dependencies, exceptions and custom events. The page polls every 5–60 s and adds newly ingested items at the top. You can filter by type, severity, text, role name and operation id, and pause or clear the view. Click a row to see its details. |
 | **Exceptions** (`/exceptions`) | Totals, the top problems grouped by `problemId`, and a list of individual exceptions. Click an exception to open its stack trace and custom dimensions, or jump to all telemetry for the same operation. |
+| **Operation timeline** (`/operations/{operationId}`) | A waterfall of everything recorded for one operation: the request, its SQL/HTTP dependencies (nested by parent, including calls into other services in the same Application Insights resource), exceptions, traces and events, with durations and failures marked ✗. Open it from a row in **Live logs** or from an exception. |
 | **Query** (`/query`) | Write your own KQL for the selected application. The editor has **IntelliSense**: completions for your tables and columns, KQL operators and functions, syntax highlighting, error squiggles and hover docs. It also has a table and column explorer, sample queries, a time range, results with CSV export, and an optional **AI assistant** that writes or fixes queries from plain English. |
 
 The **Application** dropdown in the header lists the applications assigned to the signed-in user. Both pages show data for the selected application. The last selection is remembered per user.
@@ -246,6 +248,8 @@ All endpoints except `/api/auth-config` need a B2C access token.
 | `POST /api/query/run` `{ appKey, query, rangeMinutes }` | Runs user-written KQL (after the safety check). Returns typed columns, rows, total row count and duration |
 | `POST /api/query/generate` `{ appKey, prompt, currentQuery?, error? }` | AI assistant: writes or fixes a query (404 when not configured) |
 | `GET /api/features` | `{ aiQueryEnabled }` |
+| `GET /api/overview?appKey=&rangeMinutes=` | Headline numbers (with the previous period), time series, top failing and slowest operations, top exceptions |
+| `GET /api/operations/{operationId}?appKey=&around=` | All telemetry of one operation for the timeline; `around` (a timestamp) narrows the search to ±1 day, otherwise the last 30 days |
 | `GET /healthz` | Anonymous health check (database), for App Service *Health check* |
 | `GET/POST /api/admin/grants`, `DELETE /api/admin/grants/{id}` | Admin: list, create and remove access grants |
 | `GET /api/admin/applications`, `PUT /api/admin/applications/{appKey}`, `POST …/{appKey}/check` | Admin: list, rename and check applications |
