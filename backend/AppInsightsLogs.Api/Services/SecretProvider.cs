@@ -13,8 +13,14 @@ public interface ISecretProvider
     Task<string?> GetSecretAsync(string name, CancellationToken cancellationToken);
 }
 
-/// <summary>Reads secrets from Azure Key Vault with the API's own identity (needs the "Key Vault Secrets User" role).</summary>
-public sealed class KeyVaultSecretProvider(TokenCredential credential, IOptions<KeyVaultOptions> options, ILogger<KeyVaultSecretProvider> logger)
+/// <summary>
+/// Reads secrets from Azure Key Vault with the API's Key Vault identity — the managed identity when running in Azure —
+/// which needs the "Key Vault Secrets User" role on the vault.
+/// </summary>
+public sealed class KeyVaultSecretProvider(
+    [FromKeyedServices(AzureCredentials.KeyVaultKey)] TokenCredential credential,
+    IOptions<KeyVaultOptions> options,
+    ILogger<KeyVaultSecretProvider> logger)
     : ISecretProvider
 {
     private readonly Lazy<SecretClient?> _client = new(() =>

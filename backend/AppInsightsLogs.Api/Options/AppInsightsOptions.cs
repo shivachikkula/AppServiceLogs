@@ -17,9 +17,10 @@ public sealed class AppInsightsOptions
 
     /// <summary>
     /// Which credential to use when no client secret is configured:
-    /// Default (DefaultAzureCredential), AzureCli, VisualStudio or ManagedIdentity.
+    /// Auto (default: the managed identity in Azure, the developer sign-in elsewhere), ManagedIdentity, AzureCli,
+    /// VisualStudio or DefaultAzureCredential.
     /// </summary>
-    public string Credential { get; set; } = "Default";
+    public string Credential { get; set; } = "Auto";
 
     /// <summary>Optional client id of a user-assigned managed identity.</summary>
     public string? ManagedIdentityClientId { get; set; }
