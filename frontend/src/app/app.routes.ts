@@ -1,8 +1,14 @@
 import { Routes } from '@angular/router';
-import { authGuard } from './core/auth';
+import { adminGuard, authGuard } from './core/auth';
 
 export const routes: Routes = [
-  { path: '', pathMatch: 'full', redirectTo: 'live' },
+  { path: '', pathMatch: 'full', redirectTo: 'overview' },
+  {
+    path: 'overview',
+    canActivate: [authGuard],
+    title: 'Overview · OSSE Log Viewer',
+    loadComponent: () => import('./pages/overview/overview').then((m) => m.Overview),
+  },
   {
     path: 'live',
     canActivate: [authGuard],
@@ -21,5 +27,17 @@ export const routes: Routes = [
     title: 'Query · OSSE Log Viewer',
     loadComponent: () => import('./pages/query/query').then((m) => m.Query),
   },
-  { path: '**', redirectTo: 'live' },
+  {
+    path: 'admin',
+    canActivate: [authGuard, adminGuard],
+    title: 'Admin · OSSE Log Viewer',
+    loadComponent: () => import('./pages/admin/admin').then((m) => m.Admin),
+  },
+  {
+    path: 'operations/:operationId',
+    canActivate: [authGuard],
+    title: 'Operation timeline · OSSE Log Viewer',
+    loadComponent: () => import('./pages/operation/operation').then((m) => m.Operation),
+  },
+  { path: '**', redirectTo: 'overview' },
 ];

@@ -1,7 +1,7 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, HostListener, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Subscription, forkJoin } from 'rxjs';
 import { ApplicationContextService } from '../../core/application-context.service';
 import { prettyJson, severityClass, severityLabel } from '../../core/format';
@@ -10,7 +10,7 @@ import { TelemetryApiService, describeError } from '../../core/telemetry-api.ser
 
 @Component({
   selector: 'app-exceptions',
-  imports: [FormsModule, DatePipe, DecimalPipe],
+  imports: [FormsModule, DatePipe, DecimalPipe, RouterLink],
   templateUrl: './exceptions.html',
 })
 export class Exceptions {

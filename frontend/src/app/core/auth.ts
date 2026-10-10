@@ -1,13 +1,14 @@
 import { HttpInterceptorFn } from '@angular/common/http';
 import { Injectable, InjectionToken, computed, inject, signal } from '@angular/core';
-import { CanActivateFn } from '@angular/router';
+import { CanActivateFn, Router } from '@angular/router';
 import {
   AccountInfo,
   BrowserCacheLocation,
   InteractionRequiredAuthError,
   PublicClientApplication,
 } from '@azure/msal-browser';
-import { from, switchMap } from 'rxjs';
+import { catchError, from, map, of, switchMap } from 'rxjs';
+import { TelemetryApiService } from './telemetry-api.service';
 
 /** Sign-in settings served by the API at /api/auth-config (public values only). */
 export interface AuthConfig {
@@ -134,4 +135,15 @@ export const authInterceptor: HttpInterceptorFn = (request, next) => {
   return from(auth.getAccessToken()).pipe(
     switchMap((token) => next(token ? request.clone({ setHeaders: { Authorization: `Bearer ${token}` } }) : request)),
   );
+};
+
+/** Admin page: the API decides who is an admin (Administration:AdminEmails); others are sent to the live logs. */
+export const adminGuard: CanActivateFn = () => {
+  const router = inject(Router);
+  return inject(TelemetryApiService)
+    .getMe()
+    .pipe(
+      map((user) => (user.isAdmin ? true : router.parseUrl('/live'))),
+      catchError(() => of(router.parseUrl('/live'))),
+    );
 };

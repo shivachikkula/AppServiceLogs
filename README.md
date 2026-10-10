@@ -4,8 +4,10 @@ A web app that reads telemetry from **Azure Application Insights** for several a
 
 | Page | What it shows |
 | --- | --- |
+| **Overview** (`/overview`, the start page) | Health at a glance for the selected range: requests, failure rate, P95 response time, exceptions and failed dependency calls, each compared with the previous period. Trend charts for requests vs failed requests, P95 latency and exceptions; hover or use the arrow keys for values, or switch any chart to a table. Top failing operations, slowest operations and top exceptions. |
 | **Live logs** (`/live`) | Traces, requests, dependencies, exceptions and custom events. The page polls every 5–60 s and adds newly ingested items at the top. You can filter by type, severity, text, role name and operation id, and pause or clear the view. Click a row to see its details. |
 | **Exceptions** (`/exceptions`) | Totals, the top problems grouped by `problemId`, and a list of individual exceptions. Click an exception to open its stack trace and custom dimensions, or jump to all telemetry for the same operation. |
+| **Operation timeline** (`/operations/{operationId}`) | A waterfall of everything recorded for one operation: the request, its SQL/HTTP dependencies (nested by parent, including calls into other services in the same Application Insights resource), exceptions, traces and events, with durations and failures marked ✗. Open it from a row in **Live logs** or from an exception. |
 | **Query** (`/query`) | Write your own KQL for the selected application. The editor has **IntelliSense**: completions for your tables and columns, KQL operators and functions, syntax highlighting, error squiggles and hover docs. It also has a table and column explorer, sample queries, a time range, results with CSV export, and an optional **AI assistant** that writes or fixes queries from plain English. |
 
 The **Application** dropdown in the header lists the applications assigned to the signed-in user. Both pages show data for the selected application. The last selection is remembered per user.
@@ -40,11 +42,43 @@ API ──(3) SELECT … FROM UserApplications WHERE Email = <email claim>──
 
 **Safety.** Queries run with the API's Azure identity, which can usually read *every* application in the catalog. Each query is therefore checked before it runs (`KqlGuard`). Queries that call cross-resource or external functions (`app()`, `workspace()`, `resource()`, `cluster()`, `database()`, `externaldata`), plugins such as `evaluate http_request` or `python`, or management commands are rejected. Mentions inside strings and comments are allowed. Results are capped at `Query:MaxResultRows` (the total count is still shown), and the time range at `Query:MaxRangeDays`. For the strongest isolation, give the API's identity access only to the Application Insights resources that are in `UserApplications`.
 
+**Audit log.** Every query run on the Query page and every AI assistant request is written to the `QueryAudit` table. Each row records who, when, which application, the KQL or the description, the time range, whether it succeeded, the row count, the duration and any error. Denied attempts are included, such as an application the user isn't assigned or a blocked function. If writing the audit row fails, the error is logged and the query still runs. The API's database user therefore needs `db_datawriter` as well as `db_datareader` (see the end of `schema.sql`). Rows are never deleted by the app; schedule a purge if you need a retention limit.
+
 **AI assistant (optional).** Set `AzureOpenAI:Endpoint` and `AzureOpenAI:Deployment` (any chat model deployment, e.g. `gpt-4o-mini`) and an **✦ AI** box appears on the Query page:
 - *Write query*: describe what you want in English. Tick **Change the current query** to modify the query already in the editor.
 - *Fix with AI*: when a query fails, sends the query and the error message and puts the corrected query in the editor.
 
 The generated query is never run automatically. It goes into the editor with a short explanation, so you can review it first, and it passes the same safety check when run. Only the request, the current query, the error message and the table/column names are sent to the model, **never telemetry data**. Authentication uses `AzureOpenAI:ApiKey` if set; otherwise the API's own identity, which needs the **Cognitive Services OpenAI User** role on the Azure OpenAI resource. Azure OpenAI is billed per token. A typical request with the schema is a few thousand tokens, which costs fractions of a cent with a mini model.
+
+## Admin page
+
+People whose email is listed in `Administration:AdminEmails` see an **Admin** link. In App Service, set the app settings `Administration__AdminEmails__0`, `Administration__AdminEmails__1`, and so on. The API enforces this on every `/api/admin` endpoint. The page has four tabs:
+
+| Tab | What it does |
+| --- | --- |
+| **Access** | Grant a user access to an application (email + app key), or remove it. Typing an existing app key reuses that application's name; a new app key registers a new application. This replaces hand-written `INSERT`s into `UserApplications`. |
+| **Applications** | Rename an application for everyone, and **Check** it: the API reads its Key Vault secret again, takes the ApplicationId and runs a small query. That proves the secret, the connection string and the API's *Monitoring Reader* access in one click. |
+| **Audit log** | Every Query-page query and AI request, filterable by user, application and "failed or denied only". Click a row to see the full query and error. |
+| **Diagnostics** | Go-live checks run with the API's own identity and settings: B2C settings, administrators, database tables, Key Vault access, and the Azure token for Application Insights and Azure OpenAI. |
+
+The admin page writes to `UserApplications`, so the API's database user needs `db_datawriter` (see `schema.sql`).
+
+## Go-live checklist
+
+Run through this once in each environment, such as test and production:
+
+1. Run `database/schema.sql`. Grant the App Service identity `db_datareader` and `db_datawriter`.
+2. Set the app settings: `ConnectionStrings__LogViewerDb`, `AzureAdB2C__*`, `KeyVault__VaultUri`, `ApplicationInsights__Credential=ManagedIdentity`, `Administration__AdminEmails__0`, and optionally `AzureOpenAI__*`. In App Service, set **Health check** to `/healthz`.
+3. Grant the App Service identity **Key Vault Secrets User** on the vault, and **Monitoring Reader** on each Application Insights resource you'll add.
+4. Sign in as an admin, go to **Admin → Diagnostics** and run the checks. Fix anything red; yellow items are optional.
+5. On **Access**, grant yourself an application. On **Applications**, press **Check** on it and wait for the green ✓.
+6. Smoke test as a normal user (not an admin):
+   - The dropdown lists only that user's applications.
+   - **Live logs** shows new items within a few minutes.
+   - **Exceptions** opens a stack trace.
+   - **Query** completes a column name after Ctrl+Space, runs a query and exports CSV.
+   - A query with `app("…")` is rejected.
+7. Back on **Admin → Audit log**, confirm the queries from step 6 appear, including the rejected one.
 
 ## Azure setup
 
@@ -88,7 +122,7 @@ The API uses one Azure identity: the App Service's managed identity in Azure, or
 | --- | --- |
 | Key Vault | **Key Vault Secrets User** |
 | Each Application Insights resource | **Monitoring Reader** |
-| Azure SQL database | `db_datareader` (see the end of `schema.sql`), or use SQL authentication in the connection string |
+| Azure SQL database | `db_datareader` and `db_datawriter` (see the end of `schema.sql`), or use SQL authentication in the connection string |
 
 Users don't need any Azure roles. They only sign in with B2C.
 
@@ -113,6 +147,9 @@ Users don't need any Azure roles. They only sign in with B2C.
 "KeyVault": {
   "VaultUri": "https://<vault>.vault.azure.net/",
   "CacheMinutes": 10
+},
+"Administration": {
+  "AdminEmails": ["you@example.com"]  // who sees the Admin page
 },
 "Query": {
   "MaxResultRows": 10000,  // rows returned to the browser
@@ -211,6 +248,13 @@ All endpoints except `/api/auth-config` need a B2C access token.
 | `POST /api/query/run` `{ appKey, query, rangeMinutes }` | Runs user-written KQL (after the safety check). Returns typed columns, rows, total row count and duration |
 | `POST /api/query/generate` `{ appKey, prompt, currentQuery?, error? }` | AI assistant: writes or fixes a query (404 when not configured) |
 | `GET /api/features` | `{ aiQueryEnabled }` |
+| `GET /api/overview?appKey=&rangeMinutes=` | Headline numbers (with the previous period), time series, top failing and slowest operations, top exceptions |
+| `GET /api/operations/{operationId}?appKey=&around=` | All telemetry of one operation for the timeline; `around` (a timestamp) narrows the search to ±1 day, otherwise the last 30 days |
+| `GET /healthz` | Anonymous health check (database), for App Service *Health check* |
+| `GET/POST /api/admin/grants`, `DELETE /api/admin/grants/{id}` | Admin: list, create and remove access grants |
+| `GET /api/admin/applications`, `PUT /api/admin/applications/{appKey}`, `POST …/{appKey}/check` | Admin: list, rename and check applications |
+| `GET /api/admin/audit?email=&appKey=&failedOnly=&beforeId=&take=` | Admin: query audit log, newest first |
+| `GET /api/admin/diagnostics` | Admin: go-live checks |
 
 The API returns **403** for an `appKey` that isn't assigned to the signed-in user. Before any user input goes into a KQL query, it is escaped as a string literal. Numeric inputs and time ranges are clamped.
 

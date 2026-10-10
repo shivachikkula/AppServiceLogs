@@ -86,6 +86,7 @@ export interface ApplicationSummary {
 export interface UserInfo {
   email: string;
   name: string | null;
+  isAdmin: boolean;
 }
 
 export const SEVERITY_LABELS: Record<number, string> = {
@@ -147,4 +148,98 @@ export interface GeneratedQuery {
 
 export interface FeatureFlags {
   aiQueryEnabled: boolean;
+}
+
+export interface AdminGrant {
+  id: number;
+  email: string;
+  applicationName: string;
+  appKey: string;
+  createdAt: string;
+}
+
+export interface AdminApplication {
+  appKey: string;
+  applicationName: string;
+  users: number;
+}
+
+export interface ApplicationCheck {
+  ok: boolean;
+  applicationId: string | null;
+  recentItems: number | null;
+  message: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  timestamp: string;
+  email: string;
+  appKey: string;
+  action: string;
+  text: string;
+  rangeMinutes: number | null;
+  succeeded: boolean;
+  rowCount: number | null;
+  durationMs: number | null;
+  error: string | null;
+}
+
+export interface DiagnosticCheck {
+  name: string;
+  status: 'ok' | 'warning' | 'error';
+  detail: string;
+}
+
+export interface OverviewKpis {
+  requests: number;
+  failedRequests: number;
+  avgDurationMs: number | null;
+  p95DurationMs: number | null;
+  exceptions: number;
+  failedDependencies: number;
+  previousRequests: number;
+  previousFailedRequests: number;
+  previousExceptions: number;
+}
+
+export interface OverviewPoint {
+  timestamp: string;
+  requests: number;
+  failedRequests: number;
+  p95DurationMs: number | null;
+  exceptions: number;
+}
+
+export interface OverviewResponse {
+  rangeMinutes: number;
+  binMinutes: number;
+  kpis: OverviewKpis;
+  series: OverviewPoint[];
+  topFailing: { operation: string; failed: number; total: number }[];
+  slowest: { operation: string; count: number; p95DurationMs: number }[];
+  topExceptions: { type: string; message: string | null; problemId: string | null; count: number }[];
+}
+
+export interface OperationItem {
+  itemId: string;
+  kind: 'request' | 'dependency' | 'exception' | 'trace' | 'event';
+  timestamp: string;
+  id: string | null;
+  parentId: string | null;
+  name: string;
+  detail: string | null;
+  target: string | null;
+  dependencyType: string | null;
+  resultCode: string | null;
+  success: boolean | null;
+  durationMs: number | null;
+  severityLevel: number | null;
+  roleName: string | null;
+}
+
+export interface OperationTimeline {
+  operationId: string;
+  items: OperationItem[];
+  truncated: boolean;
 }

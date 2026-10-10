@@ -40,7 +40,7 @@ public sealed partial class ApplicationCatalog(
             throw new AppInsightsQueryException(HttpStatusCode.BadRequest, "Select an application first (appKey is required).", "AppKeyRequired");
         }
 
-        if (!SecretNamePattern().IsMatch(appKey))
+        if (!IsValidAppKey(appKey))
         {
             throw new AppInsightsQueryException(HttpStatusCode.BadRequest, "The app key is not a valid Key Vault secret name.", "InvalidAppKey");
         }
@@ -52,26 +52,45 @@ public sealed partial class ApplicationCatalog(
             .FirstOrDefaultAsync(cancellationToken))
             ?? throw new AppInsightsQueryException(HttpStatusCode.Forbidden, "You do not have access to this application.", "ApplicationForbidden");
 
-        var applicationId = await cache.GetOrCreateAsync($"appinsights-appid:{grant.AppKey}", async entry =>
+        var applicationId = await ResolveApplicationIdAsync(grant.AppKey, grant.ApplicationName, bypassCache: false, cancellationToken);
+
+        return new ResolvedApplication(grant.ApplicationName, grant.AppKey, applicationId);
+    }
+
+    /// <summary>
+    /// Reads the application's connection string from Key Vault (secret named <paramref name="appKey"/>) and returns
+    /// its Application Insights id. Does not check any user's access: callers must do that first.
+    /// </summary>
+    public async Task<string> ResolveApplicationIdAsync(string appKey, string applicationName, bool bypassCache, CancellationToken cancellationToken)
+    {
+        var cacheKey = $"appinsights-appid:{appKey}";
+        if (bypassCache)
         {
-            var connectionString = await secrets.GetSecretAsync(grant.AppKey, cancellationToken)
+            cache.Remove(cacheKey);
+        }
+
+        var applicationId = await cache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            var connectionString = await secrets.GetSecretAsync(appKey, cancellationToken)
                 ?? throw new AppInsightsQueryException(
                     HttpStatusCode.NotFound,
-                    $"No Key Vault secret named '{grant.AppKey}' was found for application '{grant.ApplicationName}'.",
+                    $"No Key Vault secret named '{appKey}' was found for application '{applicationName}'.",
                     "SecretNotFound");
 
             var id = ConnectionStringParser.ResolveApplicationId(connectionString, null)
                 ?? throw new AppInsightsQueryException(
                     HttpStatusCode.UnprocessableEntity,
-                    $"The connection string for '{grant.ApplicationName}' has no ApplicationId segment. Store the full connection string from the Application Insights Overview page.",
+                    $"The connection string for '{applicationName}' has no ApplicationId segment. Store the full connection string from the Application Insights Overview page.",
                     "ApplicationIdMissing");
 
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(Math.Max(1, keyVaultOptions.Value.CacheMinutes));
             return id;
         });
 
-        return new ResolvedApplication(grant.ApplicationName, grant.AppKey, applicationId!);
+        return applicationId!;
     }
+
+    public static bool IsValidAppKey(string? appKey) => appKey is not null && SecretNamePattern().IsMatch(appKey);
 
     private static async Task<T> QueryDatabaseAsync<T>(Func<Task<T>> query)
     {

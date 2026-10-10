@@ -132,8 +132,11 @@
                   {{ e.operationName || '—' }}
                   @if (e.operationId) {
                     <code>{{ e.operationId }}</code>
+                    <a class="link-strong" [routerLink]="['/operations', e.operationId]" [queryParams]="{ around: e.timestamp }" (click)="$event.stopPropagation()">
+                      open timeline →
+                    </a>
                     <button type="button" class="link" (click)="filterByOperation(e.operationId); $event.stopPropagation()">
-                      show all telemetry for this operation
+                      filter logs to this operation
                     </button>
                   }
                 </dd>

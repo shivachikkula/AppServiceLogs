@@ -1,6 +1,7 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, OnInit, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ApplicationContextService } from '../../core/application-context.service';
 import { prettyJson, severityClass, severityLabel } from '../../core/format';
@@ -11,7 +12,7 @@ const MAX_BUFFER = 2000;
 
 @Component({
   selector: 'app-live-logs',
-  imports: [FormsModule, DatePipe, DecimalPipe],
+  imports: [FormsModule, DatePipe, DecimalPipe, RouterLink],
   templateUrl: './live-logs.html',
 })
 export class LiveLogs implements OnInit {

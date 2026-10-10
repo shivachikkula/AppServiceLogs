@@ -167,7 +167,8 @@
         {{ s.operationName || '—' }}
         @if (s.operationId) {
           <code>{{ s.operationId }}</code>
-          <button type="button" class="link" (click)="viewOperation(s.operationId)">view all telemetry for this operation →</button>
+          <a class="link-strong" [routerLink]="['/operations', s.operationId]" [queryParams]="{ around: s.timestamp }">open timeline →</a>
+          <button type="button" class="link" (click)="viewOperation(s.operationId)">view as log list</button>
         }
       </dd>
     </dl>

@@ -1,0 +1,106 @@
+<figure class="chart-card">
+  <figcaption class="chart-header">
+    <span class="chart-title">{{ title() }}</span>
+    @if (series().length > 1) {
+      <span class="chart-legend">
+        @for (s of series(); track s.name) {
+          <span class="legend-item">
+            @if (kind() === 'line') {
+              <svg width="16" height="8" aria-hidden="true"><line x1="0" y1="4" x2="16" y2="4" [attr.stroke]="s.color" stroke-width="2" /></svg>
+            } @else {
+              <svg width="10" height="10" aria-hidden="true"><rect width="10" height="10" rx="2" [attr.fill]="s.color" /></svg>
+            }
+            {{ s.name }}
+          </span>
+        }
+      </span>
+    }
+    <button type="button" class="link chart-table-toggle" (click)="showTable.set(!showTable())">{{ showTable() ? 'Show chart' : 'Show table' }}</button>
+  </figcaption>
+
+  <div #host class="chart-host" [hidden]="showTable()">
+    <svg [attr.width]="width()" [attr.height]="height()" role="img" [attr.aria-label]="summary()">
+      @for (t of yTicks(); track $index) {
+        <line class="chart-grid" [attr.x1]="plot().left" [attr.x2]="plot().left + plot().width" [attr.y1]="t.y" [attr.y2]="t.y" />
+        <text class="chart-axis" [attr.x]="plot().left - 8" [attr.y]="t.y + 4" text-anchor="end">{{ t.label }}</text>
+      }
+      @for (t of xTicks(); track $index) {
+        <text class="chart-axis" [attr.x]="t.x" [attr.y]="plot().top + plot().height + 18" text-anchor="middle">{{ t.label }}</text>
+      }
+
+      @for (b of bars(); track b.i) {
+        @if (b.d) {
+          <path [attr.d]="b.d" [attr.fill]="b.color" [attr.opacity]="tooltip() && tooltip()!.i !== b.i ? 0.55 : 1" />
+        }
+      }
+      @if (tooltip(); as tip) {
+        @if (kind() === 'line') {
+          <line class="chart-crosshair" [attr.x1]="tip.x" [attr.x2]="tip.x" [attr.y1]="plot().top" [attr.y2]="plot().top + plot().height" />
+        }
+      }
+      @for (l of linePaths(); track l.name) {
+        <path [attr.d]="l.d" fill="none" [attr.stroke]="l.color" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+      }
+      @if (tooltip(); as tip) {
+        @for (m of tip.markers; track $index) {
+          <circle [attr.cx]="tip.x" [attr.cy]="m.y" r="4" [attr.fill]="m.color" class="chart-marker" />
+        }
+      }
+
+      <!-- Hit area: the whole plot, so the reader aims at a time, not at a 2px line. -->
+      <rect
+        class="chart-hit"
+        [attr.x]="plot().left"
+        [attr.y]="plot().top"
+        [attr.width]="plot().width"
+        [attr.height]="plot().height"
+        tabindex="0"
+        role="slider"
+        [attr.aria-label]="title() + ': use arrow keys to read values'"
+        [attr.aria-valuetext]="tooltip() ? (tooltip()!.time | date: timeFormat()) : 'no point selected'"
+        (pointermove)="onPointerMove($event)"
+        (pointerleave)="hoverIndex.set(null)"
+        (keydown)="onKeyDown($event)"
+        (blur)="hoverIndex.set(null)" />
+    </svg>
+
+    @if (tooltip(); as tip) {
+      <div class="chart-tooltip" [style.left.px]="tip.left" [style.top.px]="plot().top">
+        <div class="chart-tooltip-time">{{ tip.time | date: timeFormat() }}</div>
+        @for (row of tip.rows; track row.name) {
+          <div class="chart-tooltip-row">
+            <svg width="12" height="4" aria-hidden="true"><line x1="0" y1="2" x2="12" y2="2" [attr.stroke]="row.color" stroke-width="2" /></svg>
+            <strong>{{ formatValue(row.value) }}</strong>
+            <span class="muted">{{ row.name }}</span>
+          </div>
+        }
+      </div>
+    }
+  </div>
+
+  @if (showTable()) {
+    <div class="table-wrap chart-table">
+      <table class="log-table">
+        <caption class="visually-hidden">{{ title() }}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            @for (s of series(); track s.name) {
+              <th scope="col">{{ s.name }}</th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (t of timestamps(); track $index; let i = $index) {
+            <tr>
+              <td class="mono nowrap">{{ t | date: timeFormat() }}</td>
+              @for (s of series(); track s.name) {
+                <td>{{ formatValue(s.values[i]) }}</td>
+              }
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</figure>
