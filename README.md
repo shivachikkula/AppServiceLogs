@@ -146,6 +146,9 @@ Users don't need any Azure roles. They only sign in with B2C.
   "VaultUri": "https://<vault>.vault.azure.net/",
   "CacheMinutes": 10
 },
+"Administration": {
+  "AdminEmails": ["you@example.com"]  // who sees the Admin page
+},
 "Query": {
   "MaxResultRows": 10000,  // rows returned to the browser
   "MaxRangeDays": 90,
