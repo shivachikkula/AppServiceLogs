@@ -13,7 +13,11 @@ public abstract class TelemetryControllerBase(ApplicationCatalog catalog) : Cont
     /// Key Vault and runs the query. Failures become ProblemDetails here, rather than propagating to middleware
     /// (which also makes the Visual Studio debugger break on "user-unhandled" exceptions).
     /// </summary>
-    protected async Task<ActionResult<T>> Run<T>(string? appKey, Func<string, Task<T>> query, CancellationToken cancellationToken)
+    protected async Task<ActionResult<T>> Run<T>(
+        string? appKey,
+        Func<string, Task<T>> query,
+        CancellationToken cancellationToken,
+        Func<AppInsightsQueryException, Task>? onError = null)
     {
         try
         {
@@ -28,6 +32,10 @@ public abstract class TelemetryControllerBase(ApplicationCatalog catalog) : Cont
         }
         catch (AppInsightsQueryException ex)
         {
+            if (onError is not null)
+            {
+                await onError(ex);
+            }
             return Problem(title: ex.Code ?? "Application Insights query failed", detail: ex.Message, statusCode: (int)ex.StatusCode);
         }
     }

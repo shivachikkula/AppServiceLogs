@@ -40,6 +40,8 @@ API ──(3) SELECT … FROM UserApplications WHERE Email = <email claim>──
 
 **Safety.** Queries run with the API's Azure identity, which can usually read *every* application in the catalog. Each query is therefore checked before it runs (`KqlGuard`). Queries that call cross-resource or external functions (`app()`, `workspace()`, `resource()`, `cluster()`, `database()`, `externaldata`), plugins such as `evaluate http_request` or `python`, or management commands are rejected. Mentions inside strings and comments are allowed. Results are capped at `Query:MaxResultRows` (the total count is still shown), and the time range at `Query:MaxRangeDays`. For the strongest isolation, give the API's identity access only to the Application Insights resources that are in `UserApplications`.
 
+**Audit log.** Every query run on the Query page and every AI assistant request is written to the `QueryAudit` table. Each row records who, when, which application, the KQL or the description, the time range, whether it succeeded, the row count, the duration and any error. Denied attempts are included, such as an application the user isn't assigned or a blocked function. If writing the audit row fails, the error is logged and the query still runs. The API's database user therefore needs `db_datawriter` as well as `db_datareader` (see the end of `schema.sql`). Rows are never deleted by the app; schedule a purge if you need a retention limit.
+
 **AI assistant (optional).** Set `AzureOpenAI:Endpoint` and `AzureOpenAI:Deployment` (any chat model deployment, e.g. `gpt-4o-mini`) and an **✦ AI** box appears on the Query page:
 - *Write query*: describe what you want in English. Tick **Change the current query** to modify the query already in the editor.
 - *Fix with AI*: when a query fails, sends the query and the error message and puts the corrected query in the editor.
@@ -88,7 +90,7 @@ The API uses one Azure identity: the App Service's managed identity in Azure, or
 | --- | --- |
 | Key Vault | **Key Vault Secrets User** |
 | Each Application Insights resource | **Monitoring Reader** |
-| Azure SQL database | `db_datareader` (see the end of `schema.sql`), or use SQL authentication in the connection string |
+| Azure SQL database | `db_datareader` and `db_datawriter` (see the end of `schema.sql`), or use SQL authentication in the connection string |
 
 Users don't need any Azure roles. They only sign in with B2C.
 

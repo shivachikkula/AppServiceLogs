@@ -24,6 +24,8 @@ builder.Services.AddHttpClient<AppInsightsQueryClient>(client => client.Timeout 
 builder.Services.AddScoped<TelemetryService>();
 builder.Services.AddScoped<ApplicationCatalog>();
 builder.Services.AddScoped<QueryService>();
+builder.Services.AddScoped<AuditLog>();
+builder.Services.AddHealthChecks().AddDbContextCheck<LogViewerDbContext>("database");
 builder.Services.AddHttpClient<KqlAssistant>(client => client.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddSingleton<ISecretProvider, KeyVaultSecretProvider>();
 builder.Services.AddMemoryCache();
@@ -148,6 +150,9 @@ app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Liveness/readiness for App Service "Health check": reports only Healthy/Unhealthy, no details.
+app.MapHealthChecks("/healthz").AllowAnonymous();
 
 app.MapControllers();
 app.MapFallbackToFile("index.html");
