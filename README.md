@@ -188,8 +188,14 @@ The API returns **403** for an `appKey` that isn't assigned to the signed-in use
 
 ## Troubleshooting
 
+In Development the 401 response body contains the reason; in other environments it is in the API log (*Rejected B2C access token*).
+
 | Message | Fix |
 | --- | --- |
+| **401** with *IDX10214: Audience validation failed* | The token's `aud` (open it at [jwt.ms](https://jwt.ms)) must equal `SpaClientId` or `ApiClientId`. With a separate API app registration, set `ApiClientId` to the **API app's client id**. |
+| **401** with *IDX10205: Issuer validation failed* or *IDX10501: Signature validation failed* | The token came from a different B2C tenant or user flow. `Instance`, `Domain` and `SignUpSignInPolicyId` must match the `iss` claim and the `tfp`/`acr` claim in the token. |
+| **401** with *IDX20803: Unable to obtain configuration* | The API can't download `{Instance}/{Domain}/{Policy}/v2.0/.well-known/openid-configuration`. Check those three settings (no trailing path in `Instance`) and outbound network access. |
+| **401** with *IDX10223: Lifetime validation failed* | The token expired. Sign out and in again, and check the machine's clock. |
 | *Your sign-in token contains no email address* | Tick **Email Addresses** under the user flow's *Application claims*, then sign out and in again. |
 | *No applications are assigned to …* | Add rows for that email (lower case) to `UserApplications`. |
 | *Could not read the UserApplications table* | Check `ConnectionStrings:LogViewerDb`, the SQL firewall, and that `schema.sql` has been run. |

@@ -38,9 +38,34 @@ if (b2c.IsConfigured)
         .AddJwtBearer(options =>
         {
             options.Authority = b2c.MetadataAuthority;
-            options.Audience = b2c.EffectiveApiClientId;
+            options.TokenValidationParameters.ValidAudiences = b2c.ValidAudiences;
             options.MapInboundClaims = false;
             options.TokenValidationParameters.NameClaimType = "name";
+            options.Events = new JwtBearerEvents
+            {
+                // A rejected token never reaches a controller, so record why (audience, issuer, signature, expiry...).
+                OnAuthenticationFailed = context =>
+                {
+                    context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                        .CreateLogger("AppInsightsLogs.Api.Authentication")
+                        .LogWarning(context.Exception, "Rejected B2C access token: {Reason}", context.Exception.Message);
+                    return Task.CompletedTask;
+                },
+                // Return the reason as ProblemDetails (in Development) instead of an empty 401.
+                OnChallenge = async context =>
+                {
+                    context.HandleResponse();
+                    var reason = context.AuthenticateFailure?.Message ?? context.ErrorDescription;
+                    var detail = reason is null
+                        ? "No access token was sent."
+                        : builder.Environment.IsDevelopment()
+                            ? reason
+                            : "The access token was rejected. The API log contains the reason.";
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    await Results.Problem(title: "Unauthorized", detail: detail, statusCode: StatusCodes.Status401Unauthorized)
+                        .ExecuteAsync(context.HttpContext);
+                },
+            };
         });
 
     builder.Services.AddAuthorization(options =>
@@ -79,9 +104,15 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigi
 
 var app = builder.Build();
 
-if (!b2c.IsConfigured)
+var startupLogger = app.Logger;
+if (b2c.IsConfigured && startupLogger.IsEnabled(LogLevel.Information))
 {
-    app.Logger.LogWarning("Azure AD B2C is not configured: every request is signed in as {Email} (Development only).", b2c.DevelopmentUserEmail);
+    var (authority, audiences) = (b2c.MetadataAuthority, string.Join(", ", b2c.ValidAudiences));
+    startupLogger.LogInformation("Validating Azure AD B2C tokens from {Authority} for audiences {Audiences}", authority, audiences);
+}
+else if (!b2c.IsConfigured)
+{
+    startupLogger.LogWarning("Azure AD B2C is not configured: every request is signed in as {Email} (Development only).", b2c.DevelopmentUserEmail);
 }
 
 // Translate unexpected failures into ProblemDetails the UI can display.

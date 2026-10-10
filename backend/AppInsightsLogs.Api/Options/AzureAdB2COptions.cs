@@ -40,6 +40,18 @@ public sealed class AzureAdB2COptions
 
     public string EffectiveApiClientId => string.IsNullOrWhiteSpace(ApiClientId) ? SpaClientId ?? string.Empty : ApiClientId;
 
+    /// <summary>
+    /// Audiences accepted in access tokens: the API and SPA client ids, plus the App ID URI of any configured API
+    /// scope (e.g. https://contoso.onmicrosoft.com/logviewer-api for .../logviewer-api/Logs.Read).
+    /// </summary>
+    public IReadOnlyList<string> ValidAudiences =>
+        new[] { ApiClientId, SpaClientId }
+            .Concat(ApiScopes.Select(scope => scope.Contains('/', StringComparison.Ordinal) ? scope[..scope.LastIndexOf('/')] : scope))
+            .Where(a => !string.IsNullOrWhiteSpace(a))
+            .Select(a => a!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     public IReadOnlyList<string> EffectiveScopes => ApiScopes.Length > 0 ? ApiScopes : [EffectiveApiClientId];
 
     public bool IsConfigured =>

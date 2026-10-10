@@ -13,3 +13,23 @@ public class UserClaimsTests
     public void GetEmail_ReadsKnownClaims(string type, string value, string? expected) =>
         Assert.Equal(expected, UserClaims.GetEmail(new ClaimsPrincipal(new ClaimsIdentity([new Claim(type, value)], "test"))));
 }
+
+public class AzureAdB2COptionsTests
+{
+    [Fact]
+    public void ValidAudiences_IncludeBothClientIdsAndApiScopeAppIdUri()
+    {
+        var options = new Options.AzureAdB2COptions
+        {
+            SpaClientId = "spa-id",
+            ApiClientId = "api-id",
+            ApiScopes = ["https://contoso.onmicrosoft.com/logviewer-api/Logs.Read"],
+        };
+
+        Assert.Equal(["api-id", "spa-id", "https://contoso.onmicrosoft.com/logviewer-api"], options.ValidAudiences);
+    }
+
+    [Fact]
+    public void ValidAudiences_SingleRegistration_IsTheSpaClientId() =>
+        Assert.Equal(["spa-id"], new Options.AzureAdB2COptions { SpaClientId = "spa-id" }.ValidAudiences);
+}
