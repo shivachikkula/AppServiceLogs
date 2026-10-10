@@ -1,22 +1,13 @@
 namespace AppInsightsLogs.Api.Options;
 
 /// <summary>
-/// Settings for reading telemetry from Application Insights.
-/// The connection string identifies the resource (via its ApplicationId segment);
-/// reading data is authorised with Microsoft Entra ID.
+/// Settings for reading telemetry from Application Insights. Each application's connection string comes from
+/// Key Vault and identifies the resource (via its ApplicationId segment); reading data is authorised with
+/// Microsoft Entra ID using the credential configured here.
 /// </summary>
 public sealed class AppInsightsOptions
 {
     public const string SectionName = "ApplicationInsights";
-
-    /// <summary>The Application Insights connection string (Overview blade of the resource).</summary>
-    public string? ConnectionString { get; set; }
-
-    /// <summary>
-    /// Optional override. Older connection strings do not contain an ApplicationId segment;
-    /// in that case copy it from the resource's "API Access" blade.
-    /// </summary>
-    public string? ApplicationId { get; set; }
 
     /// <summary>
     /// Tenant that owns the Application Insights resource. Used by every credential type; set it when your

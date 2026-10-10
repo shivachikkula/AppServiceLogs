@@ -1,19 +1,29 @@
+using System.Net;
 using AppInsightsLogs.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AppInsightsLogs.Api.Controllers;
 
-public abstract class TelemetryControllerBase : ControllerBase
+[Authorize]
+public abstract class TelemetryControllerBase(ApplicationCatalog catalog) : ControllerBase
 {
     /// <summary>
-    /// Runs a query and turns Application Insights failures into ProblemDetails here, rather than letting them
-    /// propagate to middleware (which also makes the Visual Studio debugger break on "user-unhandled" exceptions).
+    /// Checks that the signed-in user may view <paramref name="appKey"/>, resolves its Application Insights id from
+    /// Key Vault and runs the query. Failures become ProblemDetails here, rather than propagating to middleware
+    /// (which also makes the Visual Studio debugger break on "user-unhandled" exceptions).
     /// </summary>
-    protected async Task<ActionResult<T>> Run<T>(Func<Task<T>> query)
+    protected async Task<ActionResult<T>> Run<T>(string? appKey, Func<string, Task<T>> query, CancellationToken cancellationToken)
     {
         try
         {
-            var result = await query();
+            var email = UserClaims.GetEmail(User) ?? throw new AppInsightsQueryException(
+                HttpStatusCode.Forbidden,
+                "Your sign-in token contains no email address. In the B2C user flow, enable 'Email Addresses' under Application claims.",
+                "EmailClaimMissing");
+
+            var application = await catalog.ResolveAsync(email, appKey, cancellationToken);
+            var result = await query(application.ApplicationId);
             return result is null ? NotFound() : Ok(result);
         }
         catch (AppInsightsQueryException ex)

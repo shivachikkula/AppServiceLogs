@@ -1,7 +1,8 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, DestroyRef, OnInit, computed, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
+import { ApplicationContextService } from '../../core/application-context.service';
 import { prettyJson, severityClass, severityLabel } from '../../core/format';
 import { ItemType, LogEntry, SEVERITY_LABELS, TIME_RANGES } from '../../core/models';
 import { TelemetryApiService, describeError } from '../../core/telemetry-api.service';
@@ -15,9 +16,10 @@ const MAX_BUFFER = 2000;
 })
 export class LiveLogs implements OnInit {
   private readonly api = inject(TelemetryApiService);
+  protected readonly appContext = inject(ApplicationContextService);
 
   /** Optional deep-link filter, e.g. /live?operationId=abc (bound from the query string). */
-  readonly operationIdParam = input<string | undefined>(undefined, { alias: 'operationId' });
+  readonly operationId = input<string | undefined>();
 
   protected readonly itemTypes: { value: ItemType; label: string }[] = [
     { value: 'trace', label: 'Traces' },
@@ -37,7 +39,7 @@ export class LiveLogs implements OnInit {
   protected intervalSeconds = signal(10);
   protected search = signal('');
   protected roleName = signal('');
-  protected operationId = signal('');
+  protected operationFilter = signal('');
 
   // State
   protected readonly entries = signal<LogEntry[]>([]);
@@ -67,15 +69,27 @@ export class LiveLogs implements OnInit {
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.stop());
+
+    // (Re)start tailing whenever a different application is selected in the header.
+    effect(() => {
+      const appKey = this.appContext.selectedKey();
+      untracked(() => {
+        if (appKey) {
+          this.restart();
+        } else {
+          this.stop();
+          this.entries.set([]);
+        }
+      });
+    });
   }
 
   ngOnInit(): void {
-    const operationId = this.operationIdParam();
+    const operationId = this.operationId();
     if (operationId) {
-      this.operationId.set(operationId);
+      this.operationFilter.set(operationId);
       this.lookbackMinutes.set(1440);
     }
-    this.restart();
   }
 
   protected toggleType(type: ItemType, checked: boolean): void {
@@ -99,7 +113,7 @@ export class LiveLogs implements OnInit {
 
   protected filterByOperation(operationId: string | null): void {
     if (operationId) {
-      this.operationId.set(operationId);
+      this.operationFilter.set(operationId);
       this.restart();
     }
   }
@@ -126,19 +140,25 @@ export class LiveLogs implements OnInit {
 
   private poll(): void {
     clearTimeout(this.timer);
+    const appKey = this.appContext.selectedKey();
+    if (!appKey) {
+      this.loading.set(false);
+      return;
+    }
     const generation = this.generation;
     const initial = this.cursor === null;
     this.loading.set(true);
 
     this.request = this.api
       .getLiveLogs({
+        appKey,
         since: this.cursor,
         lookbackMinutes: this.lookbackMinutes(),
         types: this.selectedTypes(),
         minSeverity: this.minSeverity(),
         search: this.search().trim(),
         roleName: this.roleName().trim(),
-        operationId: this.operationId().trim(),
+        operationId: this.operationFilter().trim(),
         take: initial ? 500 : 200,
       })
       .subscribe({

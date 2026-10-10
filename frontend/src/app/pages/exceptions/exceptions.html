@@ -135,7 +135,7 @@
 </div>
 
 @if (selected(); as s) {
-  <div class="drawer-backdrop" (click)="close()"></div>
+  <button type="button" class="drawer-backdrop" aria-label="Close details" (click)="close()"></button>
   <aside class="drawer" role="dialog" aria-label="Exception details">
     <header>
       <div>

@@ -1,0 +1,7 @@
+<Project>
+  <!-- Built-in .NET code analysis (quality, reliability and security rules) for every project. -->
+  <PropertyGroup>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+</Project>

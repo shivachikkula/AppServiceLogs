@@ -2,21 +2,26 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
+  ApplicationSummary,
   ExceptionDetail,
   ExceptionEntry,
   ExceptionGroup,
   ExceptionsFilter,
   LiveLogsFilter,
   LiveLogsResponse,
-  StatusResponse,
+  UserInfo,
 } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class TelemetryApiService {
   private readonly http = inject(HttpClient);
 
-  getStatus(): Observable<StatusResponse> {
-    return this.http.get<StatusResponse>('/api/status');
+  getMe(): Observable<UserInfo> {
+    return this.http.get<UserInfo>('/api/me');
+  }
+
+  getApplications(): Observable<ApplicationSummary[]> {
+    return this.http.get<ApplicationSummary[]>('/api/applications');
   }
 
   getLiveLogs(filter: LiveLogsFilter): Observable<LiveLogsResponse> {
@@ -30,15 +35,15 @@ export class TelemetryApiService {
   }
 
   getExceptionSummary(filter: ExceptionsFilter): Observable<ExceptionGroup[]> {
-    const { rangeMinutes, search, roleName } = filter;
+    const { appKey, rangeMinutes, search, roleName } = filter;
     return this.http.get<ExceptionGroup[]>('/api/exceptions/summary', {
-      params: toParams({ rangeMinutes, search, roleName }),
+      params: toParams({ appKey, rangeMinutes, search, roleName }),
     });
   }
 
-  getException(itemId: string, rangeMinutes: number): Observable<ExceptionDetail> {
+  getException(appKey: string, itemId: string, rangeMinutes: number): Observable<ExceptionDetail> {
     return this.http.get<ExceptionDetail>(`/api/exceptions/${encodeURIComponent(itemId)}`, {
-      params: toParams({ rangeMinutes }),
+      params: toParams({ appKey, rangeMinutes }),
     });
   }
 }

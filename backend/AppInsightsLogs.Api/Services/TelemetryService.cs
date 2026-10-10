@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using AppInsightsLogs.Api.Models;
@@ -39,7 +40,7 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
 
     private int MaxRows => Math.Max(1, options.Value.MaxRows);
 
-    public async Task<LiveLogsResponse> GetLiveLogsAsync(LiveLogsQuery request, CancellationToken cancellationToken)
+    public async Task<LiveLogsResponse> GetLiveLogsAsync(string applicationId, LiveLogsQuery request, CancellationToken cancellationToken)
     {
         var serverTime = DateTimeOffset.UtcNow;
         var tables = request.ItemTypes
@@ -59,7 +60,7 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
         var sinceFilter = request.Since is { } since ? $" | where IngestedAt > {Kql.DateTime(since)}" : string.Empty;
         var subqueries = tables.Select(t =>
             $"({t} | where timestamp > ago({Kql.Minutes(request.LookbackMinutes)}) | extend IngestedAt = ingestion_time(){sinceFilter})");
-        kql.AppendLine($"union isfuzzy=true {string.Join(", ", subqueries)}");
+        kql.AppendLine(CultureInfo.InvariantCulture, $"union isfuzzy=true {string.Join(", ", subqueries)}");
 
         // column_ifexists keeps the query valid when only some tables are selected.
         kql.AppendLine("""
@@ -83,25 +84,25 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
             """);
         if (request.MinSeverity > 0)
         {
-            kql.AppendLine($"| where Severity >= {request.MinSeverity}");
+            kql.AppendLine(CultureInfo.InvariantCulture, $"| where Severity >= {request.MinSeverity}");
         }
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
-            kql.AppendLine($"| where Message contains {Kql.String(request.Search)} or operation_Name contains {Kql.String(request.Search)}");
+            kql.AppendLine(CultureInfo.InvariantCulture, $"| where Message contains {Kql.String(request.Search)} or operation_Name contains {Kql.String(request.Search)}");
         }
         if (!string.IsNullOrWhiteSpace(request.RoleName))
         {
-            kql.AppendLine($"| where cloud_RoleName =~ {Kql.String(request.RoleName)}");
+            kql.AppendLine(CultureInfo.InvariantCulture, $"| where cloud_RoleName =~ {Kql.String(request.RoleName)}");
         }
         if (!string.IsNullOrWhiteSpace(request.OperationId))
         {
-            kql.AppendLine($"| where operation_Id == {Kql.String(request.OperationId)}");
+            kql.AppendLine(CultureInfo.InvariantCulture, $"| where operation_Id == {Kql.String(request.OperationId)}");
         }
 
-        kql.AppendLine($"| top {take} by IngestedAt desc");
+        kql.AppendLine(CultureInfo.InvariantCulture, $"| top {take} by IngestedAt desc");
         kql.AppendLine("| project itemId, timestamp, IngestedAt, itemType, Severity, Message, cloud_RoleName, cloud_RoleInstance, operation_Name, operation_Id, resultCode = _resultCode, duration = _duration, customDimensions");
 
-        var table = await client.QueryAsync(kql.ToString(), TimeSpan.FromMinutes(request.LookbackMinutes + 5), cancellationToken);
+        var table = await client.QueryAsync(applicationId, kql.ToString(), TimeSpan.FromMinutes(request.LookbackMinutes + 5), cancellationToken);
 
         var items = table.Rows
             .Select(r => new LogEntry(
@@ -125,25 +126,25 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
         return new LiveLogsResponse(items, cursor, serverTime);
     }
 
-    public async Task<IReadOnlyList<ExceptionEntry>> GetExceptionsAsync(ExceptionsQuery request, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ExceptionEntry>> GetExceptionsAsync(string applicationId, ExceptionsQuery request, CancellationToken cancellationToken)
     {
         var take = Math.Clamp(request.Take, 1, MaxRows);
         var kql = new StringBuilder();
         kql.AppendLine("exceptions");
-        kql.AppendLine($"| where timestamp > ago({Kql.Minutes(request.RangeMinutes)})");
+        kql.AppendLine(CultureInfo.InvariantCulture, $"| where timestamp > ago({Kql.Minutes(request.RangeMinutes)})");
         AppendExceptionFilters(kql, request);
-        kql.AppendLine($"| top {take} by timestamp desc");
+        kql.AppendLine(CultureInfo.InvariantCulture, $"| top {take} by timestamp desc");
         kql.AppendLine(ExceptionProjection);
 
-        var table = await client.QueryAsync(kql.ToString(), TimeSpan.FromMinutes(request.RangeMinutes + 5), cancellationToken);
+        var table = await client.QueryAsync(applicationId, kql.ToString(), TimeSpan.FromMinutes(request.RangeMinutes + 5), cancellationToken);
         return table.Rows.Select(MapException).ToList();
     }
 
-    public async Task<IReadOnlyList<ExceptionGroup>> GetExceptionSummaryAsync(ExceptionsQuery request, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ExceptionGroup>> GetExceptionSummaryAsync(string applicationId, ExceptionsQuery request, CancellationToken cancellationToken)
     {
         var kql = new StringBuilder();
         kql.AppendLine("exceptions");
-        kql.AppendLine($"| where timestamp > ago({Kql.Minutes(request.RangeMinutes)})");
+        kql.AppendLine(CultureInfo.InvariantCulture, $"| where timestamp > ago({Kql.Minutes(request.RangeMinutes)})");
         AppendExceptionFilters(kql, request with { ProblemId = null });
         kql.AppendLine("""
             | summarize Count = count(), AffectedOperations = dcount(operation_Id), FirstSeen = min(timestamp), LastSeen = max(timestamp),
@@ -151,7 +152,7 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
             | top 50 by Count desc
             """);
 
-        var table = await client.QueryAsync(kql.ToString(), TimeSpan.FromMinutes(request.RangeMinutes + 5), cancellationToken);
+        var table = await client.QueryAsync(applicationId, kql.ToString(), TimeSpan.FromMinutes(request.RangeMinutes + 5), cancellationToken);
         return table.Rows
             .Select(r => new ExceptionGroup(
                 ProblemId: r.GetString("problemId") ?? "(none)",
@@ -164,7 +165,7 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
             .ToList();
     }
 
-    public async Task<ExceptionDetail?> GetExceptionAsync(string itemId, int rangeMinutes, CancellationToken cancellationToken)
+    public async Task<ExceptionDetail?> GetExceptionAsync(string applicationId, string itemId, int rangeMinutes, CancellationToken cancellationToken)
     {
         var kql = $"""
             exceptions
@@ -174,8 +175,8 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
             {ExceptionProjection}, details, customDimensions
             """;
 
-        var table = await client.QueryAsync(kql, TimeSpan.FromMinutes(rangeMinutes + 5), cancellationToken);
-        var row = table.Rows.FirstOrDefault();
+        var table = await client.QueryAsync(applicationId, kql, TimeSpan.FromMinutes(rangeMinutes + 5), cancellationToken);
+        var row = table.Rows.Count > 0 ? table.Rows[0] : null;
         if (row is null)
         {
             return null;
@@ -197,19 +198,19 @@ public sealed class TelemetryService(AppInsightsQueryClient client, IOptions<App
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
             var term = Kql.String(request.Search);
-            kql.AppendLine($"| where type contains {term} or outerMessage contains {term} or innermostMessage contains {term} or problemId contains {term} or operation_Name contains {term}");
+            kql.AppendLine(CultureInfo.InvariantCulture, $"| where type contains {term} or outerMessage contains {term} or innermostMessage contains {term} or problemId contains {term} or operation_Name contains {term}");
         }
         if (!string.IsNullOrWhiteSpace(request.ProblemId))
         {
-            kql.AppendLine($"| where problemId == {Kql.String(request.ProblemId)}");
+            kql.AppendLine(CultureInfo.InvariantCulture, $"| where problemId == {Kql.String(request.ProblemId)}");
         }
         if (!string.IsNullOrWhiteSpace(request.RoleName))
         {
-            kql.AppendLine($"| where cloud_RoleName =~ {Kql.String(request.RoleName)}");
+            kql.AppendLine(CultureInfo.InvariantCulture, $"| where cloud_RoleName =~ {Kql.String(request.RoleName)}");
         }
         if (!string.IsNullOrWhiteSpace(request.OperationId))
         {
-            kql.AppendLine($"| where operation_Id == {Kql.String(request.OperationId)}");
+            kql.AppendLine(CultureInfo.InvariantCulture, $"| where operation_Id == {Kql.String(request.OperationId)}");
         }
     }
 

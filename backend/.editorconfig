@@ -1,0 +1,13 @@
+root = false
+
+[*.cs]
+# Structured logging via LoggerMessage source generators is a performance nicety, not a defect here.
+dotnet_diagnostic.CA1848.severity = suggestion
+# Kql.String / Kql.DateTime deliberately mirror KQL literal names.
+dotnet_diagnostic.CA1720.severity = suggestion
+
+[AppInsightsLogs.Api.Tests/**.cs]
+# Test names use Method_Scenario_Expectation.
+dotnet_diagnostic.CA1707.severity = none
+# Tests construct plain exceptions as inputs.
+dotnet_diagnostic.CA2201.severity = none

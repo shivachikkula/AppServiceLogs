@@ -19,17 +19,9 @@ public sealed class AppInsightsQueryClient(
 {
     private readonly AppInsightsOptions _options = options.Value;
 
-    public string? ApplicationId => ConnectionStringParser.ResolveApplicationId(_options.ConnectionString, _options.ApplicationId);
-
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(ApplicationId);
-
-    public async Task<QueryTable> QueryAsync(string query, TimeSpan timespan, CancellationToken cancellationToken)
+    /// <summary>Runs a KQL query against the Application Insights resource with the given application id.</summary>
+    public async Task<QueryTable> QueryAsync(string applicationId, string query, TimeSpan timespan, CancellationToken cancellationToken)
     {
-        var applicationId = ApplicationId ?? throw new AppInsightsQueryException(
-            HttpStatusCode.ServiceUnavailable,
-            "Application Insights is not configured. Set ApplicationInsights:ConnectionString (it must contain an ApplicationId segment) or ApplicationInsights:ApplicationId.",
-            "NotConfigured");
-
         var endpoint = _options.QueryEndpoint.TrimEnd('/');
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/v1/apps/{Uri.EscapeDataString(applicationId)}/query")
         {
