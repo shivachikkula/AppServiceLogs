@@ -3,7 +3,9 @@
   "version": 1,
   "cli": {
     "packageManager": "npm",
-    "schematicCollections": ["angular-eslint"]
+    "schematicCollections": [
+      "angular-eslint"
+    ]
   },
   "newProjectRoot": "projects",
   "projects": {
@@ -30,7 +32,26 @@
                 "input": "public"
               }
             ],
-            "styles": ["src/styles.scss"]
+            "styles": [
+              "src/styles.scss",
+              {
+                "input": "node_modules/monaco-editor/min/vs/editor/editor.main.css",
+                "bundleName": "monaco-editor",
+                "inject": false
+              }
+            ],
+            "loader": {
+              ".css": "empty"
+            },
+            "webWorkerTsConfig": "tsconfig.worker.json",
+            "externalDependencies": [
+              "fs"
+            ],
+            "allowedCommonJsDependencies": [
+              "xregexp",
+              "@kusto/language-service",
+              "@kusto/language-service-next"
+            ]
           },
           "configurations": {
             "production": {
@@ -68,7 +89,13 @@
           },
           "defaultConfiguration": "development",
           "options": {
-            "proxyConfig": "proxy.conf.json"
+            "proxyConfig": "proxy.conf.json",
+            "prebundle": {
+              "exclude": [
+                "monaco-editor",
+                "@kusto/monaco-kusto"
+              ]
+            }
           }
         },
         "test": {
@@ -77,7 +104,10 @@
         "lint": {
           "builder": "@angular-eslint/builder:lint",
           "options": {
-            "lintFilePatterns": ["src/**/*.ts", "src/**/*.html"]
+            "lintFilePatterns": [
+              "src/**/*.ts",
+              "src/**/*.html"
+            ]
           }
         }
       }

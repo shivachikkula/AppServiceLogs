@@ -3,6 +3,10 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
   ApplicationSummary,
+  FeatureFlags,
+  GeneratedQuery,
+  KqlResult,
+  KqlSchema,
   ExceptionDetail,
   ExceptionEntry,
   ExceptionGroup,
@@ -22,6 +26,22 @@ export class TelemetryApiService {
 
   getApplications(): Observable<ApplicationSummary[]> {
     return this.http.get<ApplicationSummary[]>('/api/applications');
+  }
+
+  getFeatures(): Observable<FeatureFlags> {
+    return this.http.get<FeatureFlags>('/api/features');
+  }
+
+  getQuerySchema(appKey: string): Observable<KqlSchema> {
+    return this.http.get<KqlSchema>('/api/query/schema', { params: toParams({ appKey }) });
+  }
+
+  runQuery(appKey: string, query: string, rangeMinutes: number): Observable<KqlResult> {
+    return this.http.post<KqlResult>('/api/query/run', { appKey, query, rangeMinutes });
+  }
+
+  generateQuery(appKey: string, prompt: string, currentQuery?: string, error?: string): Observable<GeneratedQuery> {
+    return this.http.post<GeneratedQuery>('/api/query/generate', { appKey, prompt, currentQuery, error });
   }
 
   getLiveLogs(filter: LiveLogsFilter): Observable<LiveLogsResponse> {

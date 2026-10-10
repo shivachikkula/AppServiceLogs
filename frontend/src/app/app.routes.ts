@@ -15,5 +15,11 @@ export const routes: Routes = [
     title: 'Exceptions · OSSE Log Viewer',
     loadComponent: () => import('./pages/exceptions/exceptions').then((m) => m.Exceptions),
   },
+  {
+    path: 'query',
+    canActivate: [authGuard],
+    title: 'Query · OSSE Log Viewer',
+    loadComponent: () => import('./pages/query/query').then((m) => m.Query),
+  },
   { path: '**', redirectTo: 'live' },
 ];

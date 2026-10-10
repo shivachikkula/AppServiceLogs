@@ -7,7 +7,8 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "lint": "ng lint"
+    "lint": "ng lint",
+    "postinstall": "node scripts/patch-monaco-exports.mjs"
   },
   "private": true,
   "packageManager": "npm@10.9.7",
@@ -19,6 +20,8 @@
     "@angular/platform-browser": "^21.2.0",
     "@angular/router": "^21.2.0",
     "@azure/msal-browser": "^5.23.0",
+    "@kusto/monaco-kusto": "^15.0.1",
+    "monaco-editor": "^0.55.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },
@@ -34,5 +37,8 @@
     "typescript": "~5.9.2",
     "typescript-eslint": "8.59.2",
     "vitest": "^4.0.8"
+  },
+  "overrides": {
+    "dompurify": "^3.4.16"
   }
 }

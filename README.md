@@ -6,6 +6,7 @@ A web app that reads telemetry from **Azure Application Insights** for several a
 | --- | --- |
 | **Live logs** (`/live`) | Traces, requests, dependencies, exceptions and custom events. The page polls every 5–60 s and adds newly ingested items at the top. You can filter by type, severity, text, role name and operation id, and pause or clear the view. Click a row to see its details. |
 | **Exceptions** (`/exceptions`) | Totals, the top problems grouped by `problemId`, and a list of individual exceptions. Click an exception to open its stack trace and custom dimensions, or jump to all telemetry for the same operation. |
+| **Query** (`/query`) | Write your own KQL for the selected application. The editor has **IntelliSense**: completions for your tables and columns, KQL operators and functions, syntax highlighting, error squiggles and hover docs. It also has a table and column explorer, sample queries, a time range, results with CSV export, and an optional **AI assistant** that writes or fixes queries from plain English. |
 
 The **Application** dropdown in the header lists the applications assigned to the signed-in user. Both pages show data for the selected application. The last selection is remembered per user.
 
@@ -32,6 +33,18 @@ API ──(3) SELECT … FROM UserApplications WHERE Email = <email claim>──
 - **The connection string never reaches the browser.** The browser only knows application names and app keys. The API looks up the secret itself, but only for an app key that is assigned to the signed-in user.
 - **The connection string only identifies the resource.** Azure does not accept an Application Insights connection string for *reading* data. The API reads its `ApplicationId` and then queries `https://api.applicationinsights.io` with its own Entra ID identity (a managed identity in Azure, or `az login` locally).
 - Connection strings are cached in memory for `KeyVault:CacheMinutes` (default 10), so Key Vault isn't called on every refresh.
+
+## Query page (KQL)
+
+**IntelliSense.** The editor is Microsoft's Monaco editor with the official Kusto language service (`@kusto/monaco-kusto`), the same one the Azure portal uses. When you pick an application, the API reads its table and column schema with `getschema` (cached for `Query:SchemaCacheMinutes`). The editor then completes and validates against your real columns, including custom ones. Press **Ctrl+Space** for suggestions and **Ctrl+Enter** (or Shift+Enter) to run. The editor loads only on this page (about 1.1 MB, plus a 0.9 MB gzipped language-service worker), so the other pages stay fast.
+
+**Safety.** Queries run with the API's Azure identity, which can usually read *every* application in the catalog. Each query is therefore checked before it runs (`KqlGuard`). Queries that call cross-resource or external functions (`app()`, `workspace()`, `resource()`, `cluster()`, `database()`, `externaldata`), plugins such as `evaluate http_request` or `python`, or management commands are rejected. Mentions inside strings and comments are allowed. Results are capped at `Query:MaxResultRows` (the total count is still shown), and the time range at `Query:MaxRangeDays`. For the strongest isolation, give the API's identity access only to the Application Insights resources that are in `UserApplications`.
+
+**AI assistant (optional).** Set `AzureOpenAI:Endpoint` and `AzureOpenAI:Deployment` (any chat model deployment, e.g. `gpt-4o-mini`) and an **✦ AI** box appears on the Query page:
+- *Write query*: describe what you want in English. Tick **Change the current query** to modify the query already in the editor.
+- *Fix with AI*: when a query fails, sends the query and the error message and puts the corrected query in the editor.
+
+The generated query is never run automatically. It goes into the editor with a short explanation, so you can review it first, and it passes the same safety check when run. Only the request, the current query, the error message and the table/column names are sent to the model, **never telemetry data**. Authentication uses `AzureOpenAI:ApiKey` if set; otherwise the API's own identity, which needs the **Cognitive Services OpenAI User** role on the Azure OpenAI resource. Azure OpenAI is billed per token. A typical request with the schema is a few thousand tokens, which costs fractions of a cent with a mini model.
 
 ## Azure setup
 
@@ -100,6 +113,17 @@ Users don't need any Azure roles. They only sign in with B2C.
 "KeyVault": {
   "VaultUri": "https://<vault>.vault.azure.net/",
   "CacheMinutes": 10
+},
+"Query": {
+  "MaxResultRows": 10000,  // rows returned to the browser
+  "MaxRangeDays": 90,
+  "SchemaCacheMinutes": 60
+},
+"AzureOpenAI": {           // optional: enables the AI assistant on the Query page
+  "Endpoint": "",          // https://<resource>.openai.azure.com/
+  "Deployment": "",        // chat model deployment name
+  "ApiKey": "",            // empty = use the API's Azure identity
+  "ApiVersion": "2024-10-21"
 },
 "ApplicationInsights": {
   "TenantId": "",          // Azure (Entra ID) tenant of Key Vault / App Insights — not the B2C tenant
@@ -183,13 +207,25 @@ All endpoints except `/api/auth-config` need a B2C access token.
 | `GET /api/exceptions?appKey=&rangeMinutes=&search=&problemId=&roleName=&operationId=&take=` | Exception occurrences |
 | `GET /api/exceptions/summary?appKey=&rangeMinutes=&search=&roleName=` | Exceptions grouped by problem id |
 | `GET /api/exceptions/{itemId}?appKey=&rangeMinutes=` | One exception with its reconstructed stack trace |
+| `GET /api/query/schema?appKey=` | Tables and columns of the application, for IntelliSense |
+| `POST /api/query/run` `{ appKey, query, rangeMinutes }` | Runs user-written KQL (after the safety check). Returns typed columns, rows, total row count and duration |
+| `POST /api/query/generate` `{ appKey, prompt, currentQuery?, error? }` | AI assistant: writes or fixes a query (404 when not configured) |
+| `GET /api/features` | `{ aiQueryEnabled }` |
 
 The API returns **403** for an `appKey` that isn't assigned to the signed-in user. Before any user input goes into a KQL query, it is escaped as a string literal. Numeric inputs and time ranges are clamped.
 
 ## Troubleshooting
 
+In Development the 401 response body contains the reason; in other environments it is in the API log (*Rejected B2C access token*).
+
 | Message | Fix |
 | --- | --- |
+| **401** with *IDX10214: Audience validation failed* | The token's `aud` (open it at [jwt.ms](https://jwt.ms)) must equal `SpaClientId` or `ApiClientId`. With a separate API app registration, set `ApiClientId` to the **API app's client id**. |
+| **401** with *IDX10205: Issuer validation failed* or *IDX10501: Signature validation failed* | The token came from a different B2C tenant or user flow. `Instance`, `Domain` and `SignUpSignInPolicyId` must match the `iss` claim and the `tfp`/`acr` claim in the token. |
+| **401** with *IDX20803: Unable to obtain configuration* | The API can't download `{Instance}/{Domain}/{Policy}/v2.0/.well-known/openid-configuration`. Check those three settings (no trailing path in `Instance`) and outbound network access. |
+| **401** with *IDX10223: Lifetime validation failed* | The token expired. Sign out and in again, and check the machine's clock. |
+| *'app()' is not allowed* (Query page) | Queries can only read the selected application. Select the other application in the header instead. |
+| Query page: no completions for your columns | The schema request failed (shown above the table list). The editor still completes KQL keywords and functions. |
 | *Your sign-in token contains no email address* | Tick **Email Addresses** under the user flow's *Application claims*, then sign out and in again. |
 | *No applications are assigned to …* | Add rows for that email (lower case) to `UserApplications`. |
 | *Could not read the UserApplications table* | Check `ConnectionStrings:LogViewerDb`, the SQL firewall, and that `schema.sql` has been run. |
