@@ -270,6 +270,7 @@ label.inline {
 
 input[type='text'],
 input[type='search'],
+input[type='email'],
 select {
   height: 32px;
   padding: 0 8px;
@@ -818,4 +819,103 @@ kbd {
   border-radius: 4px;
   padding: 0 4px;
   background: var(--surface);
+}
+
+/* Admin page */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+button.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 0 14px;
+  height: 36px;
+}
+button.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.banner.ok {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+}
+.inline-filter {
+  min-width: 260px;
+  margin-right: 8px;
+}
+.inline-edit {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+button.link.danger {
+  color: var(--error);
+}
+.col-actions {
+  width: 90px;
+}
+.check-result {
+  font-size: 12px;
+  margin-top: 6px;
+  max-width: 520px;
+}
+.check-result.ok {
+  color: var(--ok);
+}
+.check-result.bad {
+  color: var(--error);
+}
+.diagnostics {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0 0;
+  display: grid;
+  gap: 8px;
+}
+.diagnostics li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+.diag-icon {
+  font-weight: 700;
+  width: 16px;
+}
+.diag-ok {
+  border-left-color: var(--ok) !important;
+}
+.diag-ok .diag-icon {
+  color: var(--ok);
+}
+.diag-warning {
+  border-left-color: var(--warning) !important;
+}
+.diag-warning .diag-icon {
+  color: var(--warning);
+}
+.diag-error {
+  border-left-color: var(--error) !important;
+}
+.diag-error .diag-icon {
+  color: var(--error);
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

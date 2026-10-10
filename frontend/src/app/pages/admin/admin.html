@@ -1,0 +1,232 @@
+<section class="page-header">
+  <div>
+    <h1>Admin</h1>
+    <p class="muted">Manage who can view which application, check each application's setup, and review the query audit log.</p>
+  </div>
+</section>
+
+<div class="tabs" role="tablist" aria-label="Admin sections">
+  @for (t of tabs; track t.id) {
+    <button type="button" role="tab" class="tab" [class.active]="tab() === t.id" [attr.aria-selected]="tab() === t.id" (click)="select(t.id)">
+      {{ t.label }}
+    </button>
+  }
+</div>
+
+@if (error(); as message) {
+  <div class="banner error">{{ message }}</div>
+}
+@if (notice(); as message) {
+  <div class="banner ok">{{ message }}</div>
+}
+
+@switch (tab()) {
+  @case ('access') {
+    <form class="filters" (ngSubmit)="addGrant()">
+      <label class="grow">
+        User email
+        <input type="email" name="email" required placeholder="jane.doe@example.com" [ngModel]="newEmail()" (ngModelChange)="newEmail.set($event)" />
+      </label>
+      <label>
+        App key (Key Vault secret)
+        <input type="text" name="appKey" required list="app-keys" placeholder="orders-api-appinsights" [ngModel]="newAppKey()" (ngModelChange)="newAppKey.set($event)" />
+        <datalist id="app-keys">
+          @for (app of applications(); track app.appKey) {
+            <option [value]="app.appKey">{{ app.applicationName }}</option>
+          }
+        </datalist>
+      </label>
+      <label>
+        Application name
+        <input
+          type="text"
+          name="appName"
+          placeholder="New application name"
+          [disabled]="!!existingAppName()"
+          [value]="existingAppName() ?? newAppName()"
+          (input)="newAppName.set($any($event.target).value)" />
+      </label>
+      <button type="submit" [disabled]="saving() || !newEmail().trim() || !newAppKey().trim()">{{ saving() ? 'Saving…' : 'Grant access' }}</button>
+    </form>
+
+    <div class="status-line muted">
+      <input type="search" class="inline-filter" placeholder="Filter by email or application" aria-label="Filter grants" [ngModel]="grantFilter()" (ngModelChange)="grantFilter.set($event)" />
+      {{ filteredGrants().length }} of {{ grants().length }} grants
+      @if (grantsLoading()) {
+        · <span class="spinner"></span>
+      }
+    </div>
+    <div class="table-wrap">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Application</th>
+            <th>App key</th>
+            <th class="col-time">Granted</th>
+            <th class="col-actions"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (grant of filteredGrants(); track grant.id) {
+            <tr>
+              <td>{{ grant.email }}</td>
+              <td>{{ grant.applicationName }}</td>
+              <td class="mono">{{ grant.appKey }}</td>
+              <td class="nowrap">{{ grant.createdAt | date: 'MMM d, y' }}</td>
+              <td><button type="button" class="link danger" (click)="removeGrant(grant)">Remove</button></td>
+            </tr>
+          } @empty {
+            <tr><td colspan="5" class="empty">{{ grantsLoading() ? 'Loading…' : 'No grants yet. Use the form above to give a user access to an application.' }}</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+
+  @case ('applications') {
+    <p class="muted small">
+      An application exists once at least one user has access to it. <strong>Check</strong> reads its Key Vault secret again and runs a
+      small query, so it confirms the secret, the ApplicationId and the API's <em>Monitoring Reader</em> access in one go.
+    </p>
+    <div class="table-wrap">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th>Application</th>
+            <th>App key</th>
+            <th class="col-count">Users</th>
+            <th>Check</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (app of applications(); track app.appKey) {
+            <tr>
+              <td>
+                @if (editingKey() === app.appKey) {
+                  <form class="inline-edit" (ngSubmit)="saveRename(app)">
+                    <input type="text" name="name" aria-label="Application name" [ngModel]="editName()" (ngModelChange)="editName.set($event)" />
+                    <button type="submit">Save</button>
+                    <button type="button" class="secondary" (click)="editingKey.set(null)">Cancel</button>
+                  </form>
+                } @else {
+                  {{ app.applicationName }}
+                  <button type="button" class="link" (click)="startRename(app)">Rename</button>
+                }
+              </td>
+              <td class="mono">{{ app.appKey }}</td>
+              <td>{{ app.users | number }}</td>
+              <td>
+                <button type="button" class="secondary" [disabled]="isChecking(app.appKey)" (click)="check(app.appKey)">
+                  {{ isChecking(app.appKey) ? 'Checking…' : 'Check' }}
+                </button>
+                @if (checkResult(app.appKey); as result) {
+                  <div class="check-result" [class.ok]="result.ok" [class.bad]="!result.ok">{{ result.ok ? '✓' : '✗' }} {{ result.message }}</div>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr><td colspan="4" class="empty">No applications yet. Grant a user access on the Access tab to register one.</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+
+  @case ('audit') {
+    <form class="filters" (ngSubmit)="loadAudit(true)">
+      <label class="grow">
+        User
+        <input type="search" name="auditEmail" placeholder="Email contains…" [ngModel]="auditEmail()" (ngModelChange)="auditEmail.set($event)" />
+      </label>
+      <label>
+        Application
+        <select name="auditApp" [ngModel]="auditAppKey()" (ngModelChange)="auditAppKey.set($event); loadAudit(true)">
+          <option value="">All applications</option>
+          @for (app of applications(); track app.appKey) {
+            <option [value]="app.appKey">{{ app.applicationName }}</option>
+          }
+        </select>
+      </label>
+      <label class="inline">
+        <input type="checkbox" name="failedOnly" [ngModel]="auditFailedOnly()" (ngModelChange)="auditFailedOnly.set($event); loadAudit(true)" />
+        Failed or denied only
+      </label>
+      <button type="submit">Search</button>
+    </form>
+
+    <div class="table-wrap">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th class="col-time">Time</th>
+            <th>User</th>
+            <th>Application</th>
+            <th>Action</th>
+            <th>Query / request</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (entry of audit(); track entry.id) {
+            <tr class="row" [class.sev-error]="!entry.succeeded" (click)="toggleAudit(entry.id)">
+              <td class="mono nowrap">{{ entry.timestamp | date: 'MMM d, HH:mm:ss' }}</td>
+              <td class="nowrap">{{ entry.email }}</td>
+              <td class="mono">{{ entry.appKey }}</td>
+              <td class="nowrap">{{ actionLabel(entry.action) }}</td>
+              <td class="msg mono">{{ entry.text }}</td>
+              <td class="nowrap">
+                @if (entry.succeeded) {
+                  <span class="sev sev-info">✓</span>
+                  @if (entry.rowCount !== null) {
+                    {{ entry.rowCount | number }} rows ·
+                  }
+                  {{ entry.durationMs | number }} ms
+                } @else {
+                  <span class="sev sev-error">✗ failed</span>
+                }
+              </td>
+            </tr>
+            @if (expandedAudit() === entry.id) {
+              <tr class="details-row">
+                <td colspan="6">
+                  <pre>{{ entry.text }}</pre>
+                  @if (entry.error) {
+                    <div class="banner error">{{ entry.error }}</div>
+                  }
+                  @if (entry.rangeMinutes) {
+                    <p class="muted small">Time range: {{ entry.rangeMinutes | number }} minutes</p>
+                  }
+                </td>
+              </tr>
+            }
+          } @empty {
+            <tr><td colspan="6" class="empty">{{ auditLoading() ? 'Loading…' : 'No audit entries match.' }}</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    @if (auditHasMore()) {
+      <button type="button" class="link" [disabled]="auditLoading()" (click)="loadAudit(false)">Load older entries</button>
+    }
+  }
+
+  @case ('diagnostics') {
+    <p class="muted small">
+      Go-live checks run with the API's own identity and settings. Run them after every configuration change, then use
+      <strong>Check</strong> on the Applications tab for each application.
+    </p>
+    <button type="button" (click)="runDiagnostics()" [disabled]="diagnosticsLoading()">{{ diagnosticsLoading() ? 'Running…' : '↻ Run checks' }}</button>
+    <ul class="diagnostics">
+      @for (check of diagnostics() ?? []; track check.name) {
+        <li [class]="'diag-' + check.status">
+          <span class="diag-icon" aria-hidden="true">{{ check.status === 'ok' ? '✓' : check.status === 'warning' ? '!' : '✗' }}</span>
+          <div>
+            <div class="strong">{{ check.name }} <span class="visually-hidden">({{ check.status }})</span></div>
+            <div class="muted small">{{ check.detail }}</div>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+}

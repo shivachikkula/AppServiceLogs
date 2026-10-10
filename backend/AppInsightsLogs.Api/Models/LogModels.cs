@@ -55,7 +55,7 @@ public sealed record ExceptionGroup(
 /// <summary>An application the signed-in user may view. The connection string never leaves the server.</summary>
 public sealed record ApplicationSummary(string ApplicationName, string AppKey);
 
-public sealed record UserInfo(string Email, string? Name);
+public sealed record UserInfo(string Email, string? Name, bool IsAdmin);
 
 /// <summary>Settings the Angular app needs to sign users in with Azure AD B2C (all public values).</summary>
 public sealed record AuthConfigResponse(

@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard } from './core/auth';
+import { adminGuard, authGuard } from './core/auth';
 
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'live' },
@@ -20,6 +20,12 @@ export const routes: Routes = [
     canActivate: [authGuard],
     title: 'Query · OSSE Log Viewer',
     loadComponent: () => import('./pages/query/query').then((m) => m.Query),
+  },
+  {
+    path: 'admin',
+    canActivate: [authGuard, adminGuard],
+    title: 'Admin · OSSE Log Viewer',
+    loadComponent: () => import('./pages/admin/admin').then((m) => m.Admin),
   },
   { path: '**', redirectTo: 'live' },
 ];

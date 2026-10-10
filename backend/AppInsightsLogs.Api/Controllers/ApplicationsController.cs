@@ -1,4 +1,6 @@
 using AppInsightsLogs.Api.Models;
+using AppInsightsLogs.Api.Options;
+using Microsoft.Extensions.Options;
 using AppInsightsLogs.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -8,7 +10,7 @@ namespace AppInsightsLogs.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api")]
-public sealed class ApplicationsController(ApplicationCatalog catalog) : ControllerBase
+public sealed class ApplicationsController(ApplicationCatalog catalog, IOptions<AdministrationOptions> administration) : ControllerBase
 {
     /// <summary>The signed-in user's email address and display name.</summary>
     [HttpGet("me")]
@@ -17,7 +19,7 @@ public sealed class ApplicationsController(ApplicationCatalog catalog) : Control
         var email = UserClaims.GetEmail(User);
         return email is null
             ? Problem(title: "EmailClaimMissing", detail: "Your sign-in token contains no email address. In the B2C user flow, enable 'Email Addresses' under Application claims.", statusCode: StatusCodes.Status403Forbidden)
-            : new UserInfo(email, UserClaims.GetName(User));
+            : new UserInfo(email, UserClaims.GetName(User), administration.Value.IsAdmin(email));
     }
 
     /// <summary>Applications the signed-in user may view (application name and app key only).</summary>

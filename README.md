@@ -48,6 +48,36 @@ API ──(3) SELECT … FROM UserApplications WHERE Email = <email claim>──
 
 The generated query is never run automatically. It goes into the editor with a short explanation, so you can review it first, and it passes the same safety check when run. Only the request, the current query, the error message and the table/column names are sent to the model, **never telemetry data**. Authentication uses `AzureOpenAI:ApiKey` if set; otherwise the API's own identity, which needs the **Cognitive Services OpenAI User** role on the Azure OpenAI resource. Azure OpenAI is billed per token. A typical request with the schema is a few thousand tokens, which costs fractions of a cent with a mini model.
 
+## Admin page
+
+People whose email is listed in `Administration:AdminEmails` see an **Admin** link. In App Service, set the app settings `Administration__AdminEmails__0`, `Administration__AdminEmails__1`, and so on. The API enforces this on every `/api/admin` endpoint. The page has four tabs:
+
+| Tab | What it does |
+| --- | --- |
+| **Access** | Grant a user access to an application (email + app key), or remove it. Typing an existing app key reuses that application's name; a new app key registers a new application. This replaces hand-written `INSERT`s into `UserApplications`. |
+| **Applications** | Rename an application for everyone, and **Check** it: the API reads its Key Vault secret again, takes the ApplicationId and runs a small query. That proves the secret, the connection string and the API's *Monitoring Reader* access in one click. |
+| **Audit log** | Every Query-page query and AI request, filterable by user, application and "failed or denied only". Click a row to see the full query and error. |
+| **Diagnostics** | Go-live checks run with the API's own identity and settings: B2C settings, administrators, database tables, Key Vault access, and the Azure token for Application Insights and Azure OpenAI. |
+
+The admin page writes to `UserApplications`, so the API's database user needs `db_datawriter` (see `schema.sql`).
+
+## Go-live checklist
+
+Run through this once in each environment, such as test and production:
+
+1. Run `database/schema.sql`. Grant the App Service identity `db_datareader` and `db_datawriter`.
+2. Set the app settings: `ConnectionStrings__LogViewerDb`, `AzureAdB2C__*`, `KeyVault__VaultUri`, `ApplicationInsights__Credential=ManagedIdentity`, `Administration__AdminEmails__0`, and optionally `AzureOpenAI__*`. In App Service, set **Health check** to `/healthz`.
+3. Grant the App Service identity **Key Vault Secrets User** on the vault, and **Monitoring Reader** on each Application Insights resource you'll add.
+4. Sign in as an admin, go to **Admin → Diagnostics** and run the checks. Fix anything red; yellow items are optional.
+5. On **Access**, grant yourself an application. On **Applications**, press **Check** on it and wait for the green ✓.
+6. Smoke test as a normal user (not an admin):
+   - The dropdown lists only that user's applications.
+   - **Live logs** shows new items within a few minutes.
+   - **Exceptions** opens a stack trace.
+   - **Query** completes a column name after Ctrl+Space, runs a query and exports CSV.
+   - A query with `app("…")` is rejected.
+7. Back on **Admin → Audit log**, confirm the queries from step 6 appear, including the rejected one.
+
 ## Azure setup
 
 ### 1. Azure AD B2C (user sign-in)
@@ -213,6 +243,11 @@ All endpoints except `/api/auth-config` need a B2C access token.
 | `POST /api/query/run` `{ appKey, query, rangeMinutes }` | Runs user-written KQL (after the safety check). Returns typed columns, rows, total row count and duration |
 | `POST /api/query/generate` `{ appKey, prompt, currentQuery?, error? }` | AI assistant: writes or fixes a query (404 when not configured) |
 | `GET /api/features` | `{ aiQueryEnabled }` |
+| `GET /healthz` | Anonymous health check (database), for App Service *Health check* |
+| `GET/POST /api/admin/grants`, `DELETE /api/admin/grants/{id}` | Admin: list, create and remove access grants |
+| `GET /api/admin/applications`, `PUT /api/admin/applications/{appKey}`, `POST …/{appKey}/check` | Admin: list, rename and check applications |
+| `GET /api/admin/audit?email=&appKey=&failedOnly=&beforeId=&take=` | Admin: query audit log, newest first |
+| `GET /api/admin/diagnostics` | Admin: go-live checks |
 
 The API returns **403** for an `appKey` that isn't assigned to the signed-in user. Before any user input goes into a KQL query, it is escaped as a string literal. Numeric inputs and time ranges are clamped.
 

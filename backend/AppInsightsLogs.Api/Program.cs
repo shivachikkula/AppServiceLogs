@@ -13,6 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<AppInsightsOptions>(builder.Configuration.GetSection(AppInsightsOptions.SectionName));
 builder.Services.Configure<KeyVaultOptions>(builder.Configuration.GetSection(KeyVaultOptions.SectionName));
 builder.Services.Configure<AzureAdB2COptions>(builder.Configuration.GetSection(AzureAdB2COptions.SectionName));
+builder.Services.Configure<AdministrationOptions>(builder.Configuration.GetSection(AdministrationOptions.SectionName));
 builder.Services.Configure<QueryOptions>(builder.Configuration.GetSection(QueryOptions.SectionName));
 builder.Services.Configure<AzureOpenAIOptions>(builder.Configuration.GetSection(AzureOpenAIOptions.SectionName));
 
@@ -25,6 +26,8 @@ builder.Services.AddScoped<TelemetryService>();
 builder.Services.AddScoped<ApplicationCatalog>();
 builder.Services.AddScoped<QueryService>();
 builder.Services.AddScoped<AuditLog>();
+builder.Services.AddScoped<AdminService>();
+builder.Services.AddScoped<DiagnosticsService>();
 builder.Services.AddHealthChecks().AddDbContextCheck<LogViewerDbContext>("database");
 builder.Services.AddHttpClient<KqlAssistant>(client => client.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddSingleton<ISecretProvider, KeyVaultSecretProvider>();
@@ -100,6 +103,12 @@ else
         "Azure AD B2C is not configured. Set AzureAdB2C:Instance, Domain, SignUpSignInPolicyId and SpaClientId " +
         "(or, in Development only, AzureAdB2C:DevelopmentUserEmail to run without sign-in).");
 }
+
+// Admin page: signed-in users whose email is listed in Administration:AdminEmails.
+var administration = builder.Configuration.GetSection(AdministrationOptions.SectionName).Get<AdministrationOptions>() ?? new AdministrationOptions();
+builder.Services.AddAuthorizationBuilder().AddPolicy(AppInsightsLogs.Api.Controllers.AdminController.AdminPolicy, policy => policy
+    .RequireAuthenticatedUser()
+    .RequireAssertion(ctx => administration.IsAdmin(UserClaims.GetEmail(ctx.User))));
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();

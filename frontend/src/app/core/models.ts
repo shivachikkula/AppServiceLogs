@@ -86,6 +86,7 @@ export interface ApplicationSummary {
 export interface UserInfo {
   email: string;
   name: string | null;
+  isAdmin: boolean;
 }
 
 export const SEVERITY_LABELS: Record<number, string> = {
@@ -147,4 +148,45 @@ export interface GeneratedQuery {
 
 export interface FeatureFlags {
   aiQueryEnabled: boolean;
+}
+
+export interface AdminGrant {
+  id: number;
+  email: string;
+  applicationName: string;
+  appKey: string;
+  createdAt: string;
+}
+
+export interface AdminApplication {
+  appKey: string;
+  applicationName: string;
+  users: number;
+}
+
+export interface ApplicationCheck {
+  ok: boolean;
+  applicationId: string | null;
+  recentItems: number | null;
+  message: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  timestamp: string;
+  email: string;
+  appKey: string;
+  action: string;
+  text: string;
+  rangeMinutes: number | null;
+  succeeded: boolean;
+  rowCount: number | null;
+  durationMs: number | null;
+  error: string | null;
+}
+
+export interface DiagnosticCheck {
+  name: string;
+  status: 'ok' | 'warning' | 'error';
+  detail: string;
 }

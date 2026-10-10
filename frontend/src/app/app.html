@@ -7,6 +7,9 @@
     <a routerLink="/live" routerLinkActive="active">Live logs</a>
     <a routerLink="/exceptions" routerLinkActive="active">Exceptions</a>
     <a routerLink="/query" routerLinkActive="active">Query</a>
+    @if (appContext.user()?.isAdmin) {
+      <a routerLink="/admin" routerLinkActive="active">Admin</a>
+    }
   </nav>
 
   @if (appContext.applications().length > 0) {
