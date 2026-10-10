@@ -105,3 +105,46 @@ export const TIME_RANGES = [
   { label: 'Last 7 days', minutes: 10080 },
   { label: 'Last 30 days', minutes: 43200 },
 ];
+
+export interface KqlSchemaColumn {
+  name: string;
+  type: string;
+}
+
+export interface KqlSchemaTable {
+  name: string;
+  description: string | null;
+  columns: KqlSchemaColumn[];
+}
+
+export interface KqlSchema {
+  tables: KqlSchemaTable[];
+}
+
+export interface KqlColumn {
+  name: string;
+  type: string;
+}
+
+export interface KqlResult {
+  columns: KqlColumn[];
+  rows: unknown[][];
+  totalRows: number;
+  truncated: boolean;
+  elapsedMs: number;
+}
+
+export interface KqlSample {
+  title: string;
+  description: string;
+  query: string;
+}
+
+export interface GeneratedQuery {
+  query: string;
+  explanation: string;
+}
+
+export interface FeatureFlags {
+  aiQueryEnabled: boolean;
+}

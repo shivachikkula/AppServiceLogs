@@ -8,29 +8,42 @@ public sealed class QueryTable
 {
     private readonly Dictionary<string, int> _columnIndex;
 
-    public QueryTable(IReadOnlyList<string> columns, IReadOnlyList<JsonElement[]> rows)
+    public QueryTable(IReadOnlyList<string> columns, IReadOnlyList<JsonElement[]> rows, IReadOnlyList<string>? columnTypes = null)
     {
         Columns = columns;
+        ColumnTypes = columnTypes ?? columns.Select(_ => "string").ToList();
+        RawRows = rows;
         Rows = rows.Select(r => new QueryRow(this, r)).ToList();
+        // First column wins if two names differ only by case (possible in user-written queries).
         _columnIndex = columns
             .Select((name, index) => (name, index))
-            .ToDictionary(x => x.name, x => x.index, StringComparer.OrdinalIgnoreCase);
+            .GroupBy(x => x.name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().index, StringComparer.OrdinalIgnoreCase);
     }
 
     public IReadOnlyList<string> Columns { get; }
+
+    /// <summary>KQL type of each column (string, datetime, long, real, bool, dynamic, timespan, guid...).</summary>
+    public IReadOnlyList<string> ColumnTypes { get; }
+
     public IReadOnlyList<QueryRow> Rows { get; }
+
+    /// <summary>Row values exactly as returned by the API, for passing results through unchanged.</summary>
+    public IReadOnlyList<JsonElement[]> RawRows { get; }
 
     internal int IndexOf(string column) => _columnIndex.TryGetValue(column, out var index) ? index : -1;
 
     public static QueryTable FromJson(JsonElement table)
     {
-        var columns = table.GetProperty("columns").EnumerateArray()
-            .Select(c => c.GetProperty("name").GetString() ?? string.Empty)
+        var columnElements = table.GetProperty("columns").EnumerateArray().ToList();
+        var columns = columnElements.Select(c => c.GetProperty("name").GetString() ?? string.Empty).ToList();
+        var types = columnElements
+            .Select(c => c.TryGetProperty("type", out var t) ? t.GetString() ?? "string" : "string")
             .ToList();
         var rows = table.GetProperty("rows").EnumerateArray()
             .Select(r => r.EnumerateArray().Select(v => v.Clone()).ToArray())
             .ToList();
-        return new QueryTable(columns, rows);
+        return new QueryTable(columns, rows, types);
     }
 }
 

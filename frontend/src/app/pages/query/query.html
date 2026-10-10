@@ -1,0 +1,153 @@
+<section class="page-header">
+  <div>
+    <h1>Query</h1>
+    <p class="muted">
+      Write KQL against <strong>{{ appContext.selected()?.applicationName ?? 'the selected application' }}</strong>.
+      Press <kbd>Ctrl</kbd>+<kbd>Space</kbd> for suggestions and <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run.
+    </p>
+  </div>
+</section>
+
+@if (aiEnabled().aiQueryEnabled) {
+  <form class="ai-box" (ngSubmit)="askAi()">
+    <span class="ai-badge" aria-hidden="true">✦ AI</span>
+    <input
+      type="text"
+      name="aiPrompt"
+      class="grow"
+      maxlength="2000"
+      placeholder="Describe what you want, e.g. “failed requests per hour for the orders API in the last 3 days”"
+      aria-label="Describe the query you want"
+      [ngModel]="aiPrompt()"
+      (ngModelChange)="aiPrompt.set($event)" />
+    <label class="inline small">
+      <input type="checkbox" name="aiUseCurrent" [ngModel]="aiUseCurrent()" (ngModelChange)="aiUseCurrent.set($event)" />
+      Change the current query
+    </label>
+    <button type="submit" [disabled]="aiBusy() || !aiPrompt().trim()">{{ aiBusy() ? 'Writing…' : 'Write query' }}</button>
+  </form>
+  @if (aiExplanation(); as explanation) {
+    <div class="ai-note"><strong>✦</strong> {{ explanation }} <span class="muted">Review it before running.</span></div>
+  }
+  @if (aiError(); as message) {
+    <div class="banner error">{{ message }}</div>
+  }
+}
+
+<div class="query-layout">
+  <aside class="schema-explorer" aria-label="Tables and columns">
+    <input
+      type="search"
+      placeholder="Filter tables and columns"
+      aria-label="Filter tables and columns"
+      [ngModel]="explorerFilter()"
+      (ngModelChange)="explorerFilter.set($event)" />
+    @if (schemaError(); as message) {
+      <p class="muted small">Schema unavailable: {{ message }}</p>
+    } @else if (!schema()) {
+      <p class="muted small"><span class="spinner"></span> Loading tables…</p>
+    }
+    <ul class="tables">
+      @for (table of filteredTables(); track table.name) {
+        <li>
+          <div class="table-row">
+            <button type="button" class="link expander" (click)="toggleTable(table.name)" [attr.aria-expanded]="expandedTable() === table.name || !!explorerFilter()">
+              {{ expandedTable() === table.name || explorerFilter() ? '▾' : '▸' }}
+            </button>
+            <button type="button" class="link table-name" [title]="table.description ?? ''" (click)="insert(table.name)">{{ table.name }}</button>
+          </div>
+          @if (expandedTable() === table.name || explorerFilter()) {
+            <ul class="columns">
+              @for (column of table.columns; track column.name) {
+                <li>
+                  <button type="button" class="link" (click)="insert(column.name)">{{ column.name }}</button>
+                  <span class="muted small">{{ column.type }}</span>
+                </li>
+              }
+            </ul>
+          }
+        </li>
+      }
+    </ul>
+  </aside>
+
+  <div class="query-main">
+    <div class="query-toolbar">
+      @if (running()) {
+        <button type="button" class="secondary" (click)="cancel()">■ Cancel</button>
+      } @else {
+        <button type="button" (click)="run()" [disabled]="!appContext.selectedKey() || !query().trim()">▶ Run</button>
+      }
+      <label class="inline small">
+        Time range
+        <select [ngModel]="rangeMinutes()" (ngModelChange)="rangeMinutes.set(+$event)" name="range">
+          @for (r of ranges; track r.minutes) {
+            <option [ngValue]="r.minutes">{{ r.label }}</option>
+          }
+        </select>
+      </label>
+      <label class="inline small">
+        Samples
+        <select #sampleSelect (change)="useSample(samples[+sampleSelect.value]); sampleSelect.value = ''" aria-label="Insert a sample query">
+          <option value="" selected>Choose a sample query…</option>
+          @for (sample of samples; track sample.title; let i = $index) {
+            <option [value]="i" [title]="sample.description">{{ sample.title }}</option>
+          }
+        </select>
+      </label>
+    </div>
+
+    <app-kusto-editor [(value)]="query" [schema]="schema()" (runRequested)="run()" />
+
+    @if (error(); as message) {
+      <div class="banner error query-error">
+        <div>{{ message }}</div>
+        @if (aiEnabled().aiQueryEnabled) {
+          <button type="button" class="secondary" (click)="askAi(true)" [disabled]="aiBusy()">✦ {{ aiBusy() ? 'Fixing…' : 'Fix with AI' }}</button>
+        }
+      </div>
+    }
+
+    @if (running()) {
+      <p class="muted"><span class="spinner"></span> Running query…</p>
+    } @else if (result(); as r) {
+      <div class="status-line muted">
+        {{ r.totalRows | number }} rows · {{ r.elapsedMs | number }} ms
+        @if (r.truncated) {
+          · <strong>only the first {{ r.rows.length | number }} rows were returned</strong> — add <code>take</code> or
+          <code>summarize</code> to narrow the result
+        }
+        @if (r.rows.length > 0) {
+          <button type="button" class="link" (click)="exportCsv()">Export CSV</button>
+        }
+      </div>
+      <div class="table-wrap">
+        <table class="log-table results">
+          <thead>
+            <tr>
+              @for (column of r.columns; track $index) {
+                <th [title]="column.type">{{ column.name }}</th>
+              }
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of visibleRows(); track $index) {
+              <tr>
+                @for (cell of row; track $index) {
+                  <td [class.mono]="isComplex(cell)">{{ formatCell(cell) }}</td>
+                }
+              </tr>
+            } @empty {
+              <tr>
+                <td [attr.colspan]="r.columns.length || 1" class="empty">The query returned no rows.</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (!showAllRows() && r.rows.length > displayRows) {
+        <button type="button" class="link" (click)="showAllRows.set(true)">Show all {{ r.rows.length | number }} rows</button>
+      }
+    }
+  </div>
+</div>

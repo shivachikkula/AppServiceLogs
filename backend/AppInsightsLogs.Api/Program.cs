@@ -13,6 +13,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<AppInsightsOptions>(builder.Configuration.GetSection(AppInsightsOptions.SectionName));
 builder.Services.Configure<KeyVaultOptions>(builder.Configuration.GetSection(KeyVaultOptions.SectionName));
 builder.Services.Configure<AzureAdB2COptions>(builder.Configuration.GetSection(AzureAdB2COptions.SectionName));
+builder.Services.Configure<QueryOptions>(builder.Configuration.GetSection(QueryOptions.SectionName));
+builder.Services.Configure<AzureOpenAIOptions>(builder.Configuration.GetSection(AzureOpenAIOptions.SectionName));
 
 // The API's own Azure identity: reads connection strings from Key Vault and queries Application Insights.
 builder.Services.AddSingleton<TokenCredential>(sp =>
@@ -21,6 +23,8 @@ builder.Services.AddSingleton<TokenCredential>(sp =>
 builder.Services.AddHttpClient<AppInsightsQueryClient>(client => client.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddScoped<TelemetryService>();
 builder.Services.AddScoped<ApplicationCatalog>();
+builder.Services.AddScoped<QueryService>();
+builder.Services.AddHttpClient<KqlAssistant>(client => client.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddSingleton<ISecretProvider, KeyVaultSecretProvider>();
 builder.Services.AddMemoryCache();
 
