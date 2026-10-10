@@ -41,16 +41,30 @@ public sealed class AzureAdB2COptions
     public string EffectiveApiClientId => string.IsNullOrWhiteSpace(ApiClientId) ? SpaClientId ?? string.Empty : ApiClientId;
 
     /// <summary>
-    /// Audiences accepted in access tokens: the API and SPA client ids, plus the App ID URI of any configured API
-    /// scope (e.g. https://contoso.onmicrosoft.com/logviewer-api for .../logviewer-api/Logs.Read).
+    /// Audiences accepted in access tokens: the API and SPA client ids, plus, for each configured API scope, its
+    /// App ID URI (e.g. https://contoso.onmicrosoft.com/logviewer-api for .../logviewer-api/Logs.Read) and any client
+    /// id the URI contains (e.g. api://{client-id}/access_as_user). B2C puts the API's client id in "aud".
     /// </summary>
     public IReadOnlyList<string> ValidAudiences =>
         new[] { ApiClientId, SpaClientId }
-            .Concat(ApiScopes.Select(scope => scope.Contains('/', StringComparison.Ordinal) ? scope[..scope.LastIndexOf('/')] : scope))
+            .Concat(ApiScopes.SelectMany(AudiencesFromScope))
             .Where(a => !string.IsNullOrWhiteSpace(a))
             .Select(a => a!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    private static IEnumerable<string> AudiencesFromScope(string scope)
+    {
+        var appIdUri = scope.Contains('/', StringComparison.Ordinal) ? scope[..scope.LastIndexOf('/')] : scope;
+        yield return appIdUri;
+        foreach (var part in appIdUri.Split(['/', ':'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (Guid.TryParse(part, out _))
+            {
+                yield return part;
+            }
+        }
+    }
 
     public IReadOnlyList<string> EffectiveScopes => ApiScopes.Length > 0 ? ApiScopes : [EffectiveApiClientId];
 

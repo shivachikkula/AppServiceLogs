@@ -29,6 +29,13 @@ public class AzureAdB2COptionsTests
         Assert.Equal(["api-id", "spa-id", "https://contoso.onmicrosoft.com/logviewer-api"], options.ValidAudiences);
     }
 
+    [Theory]
+    [InlineData("api://de2cce82-0320-45c2-98eb-cf9259eee0e4/access_as_user")]
+    [InlineData("https://contoso.onmicrosoft.com/de2cce82-0320-45c2-98eb-cf9259eee0e4/access_as_user")]
+    public void ValidAudiences_IncludeClientIdFromScopeUri(string scope) =>
+        Assert.Contains("de2cce82-0320-45c2-98eb-cf9259eee0e4",
+            new Options.AzureAdB2COptions { SpaClientId = "spa-id", ApiScopes = [scope] }.ValidAudiences);
+
     [Fact]
     public void ValidAudiences_SingleRegistration_IsTheSpaClientId() =>
         Assert.Equal(["spa-id"], new Options.AzureAdB2COptions { SpaClientId = "spa-id" }.ValidAudiences);
