@@ -18,8 +18,13 @@ builder.Services.Configure<QueryOptions>(builder.Configuration.GetSection(QueryO
 builder.Services.Configure<AzureOpenAIOptions>(builder.Configuration.GetSection(AzureOpenAIOptions.SectionName));
 
 // The API's own Azure identity: reads connection strings from Key Vault and queries Application Insights.
-builder.Services.AddSingleton<TokenCredential>(sp =>
-    CredentialFactory.Create(sp.GetRequiredService<IOptions<AppInsightsOptions>>().Value, builder.Environment));
+builder.Services.AddSingleton(sp => CredentialFactory.Create(
+    sp.GetRequiredService<IOptions<AppInsightsOptions>>().Value,
+    sp.GetRequiredService<IOptions<KeyVaultOptions>>().Value,
+    builder.Environment));
+builder.Services.AddSingleton(sp => sp.GetRequiredService<AzureCredentials>().Default);
+// Key Vault has its own credential: the managed identity whenever the app runs in Azure.
+builder.Services.AddKeyedSingleton(AzureCredentials.KeyVaultKey, (sp, _) => sp.GetRequiredService<AzureCredentials>().KeyVault);
 
 builder.Services.AddHttpClient<AppInsightsQueryClient>(client => client.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddScoped<TelemetryService>();

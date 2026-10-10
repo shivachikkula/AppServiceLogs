@@ -1,7 +1,7 @@
+using Azure.Core;
 using AppInsightsLogs.Api.Data;
 using AppInsightsLogs.Api.Models;
 using AppInsightsLogs.Api.Options;
-using Azure.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -11,7 +11,7 @@ namespace AppInsightsLogs.Api.Services;
 public sealed class DiagnosticsService(
     LogViewerDbContext db,
     ISecretProvider secrets,
-    TokenCredential credential,
+    AzureCredentials credentials,
     KqlAssistant assistant,
     IOptions<AzureAdB2COptions> b2c,
     IOptions<KeyVaultOptions> keyVault,
@@ -93,11 +93,16 @@ public sealed class DiagnosticsService(
         {
             // A secret that does not exist: "not found" proves the vault is reachable and the identity may read secrets.
             await secrets.GetSecretAsync("osse-log-viewer-diagnostics-probe", cancellationToken);
-            return new DiagnosticCheck("Key Vault", Ok, $"{keyVault.Value.VaultUri} is reachable and secrets can be read. Use 'Check' on the Applications tab for each app.");
+            return new DiagnosticCheck("Key Vault", Ok,
+                $"{keyVault.Value.VaultUri} is reachable and secrets can be read, signed in as the {credentials.KeyVaultDescription}. Use 'Check' on the Applications tab for each app.");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new DiagnosticCheck("Key Vault", Error, AppInsightsQueryClient.FlattenMessages(ex));
+            return new DiagnosticCheck("Key Vault", Error,
+                $"Signed in as the {credentials.KeyVaultDescription}: {AppInsightsQueryClient.FlattenMessages(ex)}" +
+                (credentials.KeyVaultDescription.StartsWith("managed identity", StringComparison.Ordinal)
+                    ? " | Make sure the identity is enabled on the App Service (Identity blade) and has the 'Key Vault Secrets User' role on the vault."
+                    : string.Empty));
         }
     }
 
@@ -106,13 +111,13 @@ public sealed class DiagnosticsService(
         var options = appInsights.Value;
         try
         {
-            await credential.GetTokenAsync(new TokenRequestContext([$"{options.QueryEndpoint.TrimEnd('/')}/.default"]), cancellationToken);
+            await credentials.Default.GetTokenAsync(new TokenRequestContext([$"{options.QueryEndpoint.TrimEnd('/')}/.default"]), cancellationToken);
             return new DiagnosticCheck("Azure identity", Ok,
-                $"Got a token for Application Insights ({CredentialFactory.Describe(options)}). Use 'Check' on the Applications tab to confirm Monitoring Reader on each resource.");
+                $"Got a token for Application Insights as the {credentials.DefaultDescription}. Use 'Check' on the Applications tab to confirm Monitoring Reader on each resource.");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new DiagnosticCheck("Azure identity", Error, $"{CredentialFactory.Describe(options)}: " + AppInsightsQueryClient.FlattenMessages(ex));
+            return new DiagnosticCheck("Azure identity", Error, $"{credentials.DefaultDescription}: " + AppInsightsQueryClient.FlattenMessages(ex));
         }
     }
 }

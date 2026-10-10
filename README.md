@@ -68,7 +68,7 @@ The admin page writes to `UserApplications`, so the API's database user needs `d
 Run through this once in each environment, such as test and production:
 
 1. Run `database/schema.sql`. Grant the App Service identity `db_datareader` and `db_datawriter`.
-2. Set the app settings: `ConnectionStrings__LogViewerDb`, `AzureAdB2C__*`, `KeyVault__VaultUri`, `ApplicationInsights__Credential=ManagedIdentity`, `Administration__AdminEmails__0`, and optionally `AzureOpenAI__*`. In App Service, set **Health check** to `/healthz`.
+2. Set the app settings: `ConnectionStrings__LogViewerDb`, `AzureAdB2C__*`, `KeyVault__VaultUri`, `Administration__AdminEmails__0`, and optionally `AzureOpenAI__*`. In App Service, set **Health check** to `/healthz`.
 3. Grant the App Service identity **Key Vault Secrets User** on the vault, and **Monitoring Reader** on each Application Insights resource you'll add.
 4. Sign in as an admin, go to **Admin → Diagnostics** and run the checks. Fix anything red; yellow items are optional.
 5. On **Access**, grant yourself an application. On **Applications**, press **Check** on it and wait for the green ✓.
@@ -116,7 +116,12 @@ az keyvault secret set --vault-name <vault> --name orders-api-appinsights --valu
 
 ### 4. Permissions for the API's identity
 
-The API uses one Azure identity: the App Service's managed identity in Azure, or your `az login` account locally. That identity needs:
+The API signs in to Azure **without any stored secret**:
+
+- **In Azure** (App Service, Functions or Container Apps), Key Vault, Application Insights and Azure OpenAI are reached with the app's **managed identity**. Turn it on under the App Service's **Identity** blade (*System assigned → On*). For a user-assigned identity, set `KeyVault:ManagedIdentityClientId` and/or `ApplicationInsights:ManagedIdentityClientId`, or the standard `AZURE_CLIENT_ID` setting, to its client id.
+- **Locally**, the same calls use your developer sign-in: `az login`, Visual Studio, `azd auth login`, or `AZURE_*` environment variables.
+
+The app tells the two apart from the variables Azure sets on its hosts (`IDENTITY_ENDPOINT`, `WEBSITE_INSTANCE_ID`, `CONTAINER_APP_NAME`). You don't need to change any setting between your machine and Azure. **Admin → Diagnostics** shows which identity each check used. That identity needs:
 
 | Resource | Role |
 | --- | --- |
@@ -146,6 +151,8 @@ Users don't need any Azure roles. They only sign in with B2C.
 },
 "KeyVault": {
   "VaultUri": "https://<vault>.vault.azure.net/",
+  "Credential": "Auto",          // Auto = managed identity in Azure, developer sign-in locally
+  "ManagedIdentityClientId": "", // only for a user-assigned identity
   "CacheMinutes": 10
 },
 "Administration": {
@@ -164,7 +171,7 @@ Users don't need any Azure roles. They only sign in with B2C.
 },
 "ApplicationInsights": {
   "TenantId": "",          // Azure (Entra ID) tenant of Key Vault / App Insights — not the B2C tenant
-  "Credential": "Default", // Default | AzureCli | VisualStudio | ManagedIdentity
+  "Credential": "Auto",     // Auto | ManagedIdentity | AzureCli | VisualStudio | DefaultAzureCredential
   "ManagedIdentityClientId": "",
   "ClientId": "", "ClientSecret": "",
   "QueryEndpoint": "https://api.applicationinsights.io",
@@ -208,7 +215,7 @@ cd backend/AppInsightsLogs.Api
 dotnet publish -c Release -o ./publish      # add -p:SkipFrontend=true to publish the API only
 ```
 
-Enable a system-assigned managed identity on the App Service and grant it the roles in [Permissions](#4-permissions-for-the-apis-identity). Set the settings above as App Service application settings, e.g. `AzureAdB2C__SpaClientId`, `KeyVault__VaultUri`, `ConnectionStrings__LogViewerDb` and `ApplicationInsights__Credential=ManagedIdentity`. Add the App Service URL as a redirect URI on the B2C SPA registration.
+Enable a system-assigned managed identity on the App Service and grant it the roles in [Permissions](#4-permissions-for-the-apis-identity). Set the settings above as App Service application settings, e.g. `AzureAdB2C__SpaClientId`, `KeyVault__VaultUri` and `ConnectionStrings__LogViewerDb`. No credential setting is needed: in Azure the API uses the managed identity automatically. Add the App Service URL as a redirect URI on the B2C SPA registration.
 
 ## CI/CD and code scanning (GitHub Actions)
 
@@ -276,7 +283,7 @@ In Development the 401 response body contains the reason; in other environments 
 | *No Key Vault secret named …* | Create the secret, named exactly like the `AppKey`. |
 | *…has no ApplicationId segment* | Store the full connection string from the Application Insights Overview page. |
 | *not allowed to read secrets from Key Vault* | Grant the API's identity **Key Vault Secrets User**. |
-| *Could not acquire an Azure access token* | Locally: run `az login --tenant <tenant-id>` and set `ApplicationInsights:TenantId` and `"Credential": "AzureCli"`. In Azure: enable the managed identity. Accounts in several tenants often fail with *"failed due to an unhandled exception"* until `TenantId` is set. |
+| *Could not acquire an Azure access token* / *ManagedIdentityCredential authentication unavailable* | In Azure: turn on the managed identity (App Service → Identity → System assigned → On) and restart the app; for a user-assigned identity, set its client id. Locally: run `az login --tenant <tenant-id>` and set `ApplicationInsights:TenantId`. Accounts in several tenants often fail with *"failed due to an unhandled exception"* until `TenantId` is set. |
 | *…does not have read access to this Application Insights resource* | Grant the API's identity **Monitoring Reader** on that resource. |
 
 ## Notes
