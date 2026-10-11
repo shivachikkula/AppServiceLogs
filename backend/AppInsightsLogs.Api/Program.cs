@@ -5,10 +5,18 @@ using Azure.Core;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Fail fast on a broken deployment: outside Development, missing or invalid settings stop the app here.
+var validation = StartupValidation.Check(builder.Configuration, builder.Environment);
+if (validation.Errors.Count > 0 && !builder.Environment.IsDevelopment())
+{
+    throw new InvalidOperationException("Invalid configuration:\n- " + string.Join("\n- ", validation.Errors));
+}
 
 builder.Services.Configure<AppInsightsOptions>(builder.Configuration.GetSection(AppInsightsOptions.SectionName));
 builder.Services.Configure<KeyVaultOptions>(builder.Configuration.GetSection(KeyVaultOptions.SectionName));
@@ -121,12 +129,29 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 
+// In Azure the UI is served by this app (same origin), so no CORS origins are needed there; Development adds the
+// Angular dev server (appsettings.Development.json).
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
+
+builder.Services.AddApiRateLimits(builder.Configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>() ?? new RateLimitOptions());
+
+// App Service terminates TLS and forwards the original scheme and client IP.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+builder.Services.AddHsts(options => options.MaxAge = TimeSpan.FromDays(365));
 
 var app = builder.Build();
 
 var startupLogger = app.Logger;
+foreach (var message in validation.Errors.Concat(validation.Warnings))
+{
+    startupLogger.LogWarning("Configuration: {Message}", message);
+}
 if (b2c.IsConfigured && startupLogger.IsEnabled(LogLevel.Information))
 {
     var (authority, audiences) = (b2c.MetadataAuthority, string.Join(", ", b2c.ValidAudiences));
@@ -156,8 +181,18 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+else
+{
+    app.UseHsts();
+}
 
-app.UseCors();
+app.UseForwardedHeaders();
+app.UseSecurityHeaders(b2c);
+
+if (allowedOrigins.Length > 0)
+{
+    app.UseCors();
+}
 
 // Serves the compiled Angular app (copied to wwwroot on publish) alongside the API. The SPA itself is public;
 // every API controller except /api/auth-config requires a signed-in user.
@@ -166,6 +201,7 @@ app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter(); // after authentication, so limits are per signed-in user
 
 // Liveness/readiness for App Service "Health check": reports only Healthy/Unhealthy, no details.
 app.MapHealthChecks("/healthz").AllowAnonymous();

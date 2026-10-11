@@ -49,7 +49,9 @@ export async function initializeAuth(): Promise<AuthContext> {
       redirectUri: window.location.origin + '/',
       postLogoutRedirectUri: window.location.origin + '/',
     },
-    cache: { cacheLocation: BrowserCacheLocation.LocalStorage },
+    // Tokens live only as long as the tab (not readable later from localStorage). A new tab signs in again silently
+    // through the B2C session cookie.
+    cache: { cacheLocation: BrowserCacheLocation.SessionStorage },
   });
   await msal.initialize();
 
