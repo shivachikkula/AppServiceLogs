@@ -13,6 +13,7 @@ A web app that reads telemetry from **Azure Application Insights** for several a
 The **Application** dropdown in the header lists the applications assigned to the signed-in user. Both pages show data for the selected application. The last selection is remembered per user.
 
 ```
+infra/      Bicep: App Service + slot, Key Vault, SQL, monitoring, role assignments, alerts
 frontend/   Angular 21 SPA (standalone components, signals, MSAL.js for B2C sign-in)
 backend/    ASP.NET Core Web API on .NET 10 + unit tests
 database/   SQL script for the UserApplications table
@@ -90,6 +91,30 @@ Run through this once in each environment, such as test and production:
 | **CORS** | No origins in production, because the UI is served by the API itself. `http://localhost:4200` is allowed only in `appsettings.Development.json`. |
 | **Startup validation** | Outside Development, the app refuses to start if `ConnectionStrings:LogViewerDb` or `KeyVault:VaultUri` is missing, a URL isn't `https://`, a credential name is unknown, or only half of the Azure OpenAI settings are set. The log lists every problem. A broken deployment therefore fails at once (and the health check keeps the old instance) instead of on the first request. |
 | **Forwarded headers** | The app trusts App Service's `X-Forwarded-Proto` / `X-Forwarded-For`, so HTTPS detection and per-IP limits for signed-out requests work behind its front end. |
+
+## Monitoring the viewer itself
+
+Set `APPLICATIONINSIGHTS_CONNECTION_STRING` (App Service sets it when you turn on Application Insights for the web app) and the API sends its own telemetry there through OpenTelemetry. Use a **separate** Application Insights resource from the applications you view. Without the setting, nothing is exported.
+
+- **Requests, dependencies and exceptions:** dependencies include calls to Application Insights, Key Vault, Azure OpenAI and SQL. Logs are included, but `/healthz` probes are filtered out.
+- **Custom metrics** (meter `OsseLogViewer`):
+  - `osse.queries`, by outcome: succeeded, failed or rejected
+  - `osse.ai_requests`
+  - `osse.access_denied`
+  - `osse.rate_limited`
+- **Security events in the log:** access denied (user and app key), rate limits reached, rejected B2C tokens (with the reason), and every admin change. Admin changes (`admin.grant`, `admin.revoke`, `admin.rename`) are also written to the `QueryAudit` table, so **Admin → Audit log** shows who changed access and when.
+
+Suggested alerts (the Bicep template in `infra/` creates the first three):
+- HTTP 5xx above a threshold
+- failed health checks
+- slow responses
+- a jump in `osse.access_denied` or `osse.rate_limited`
+
+## Reliability and load
+
+- **Retries and timeouts:** calls to Application Insights and Azure OpenAI go through .NET's standard resilience pipeline. It retries 429, 5xx and timeouts (honouring `Retry-After`), uses per-attempt and total timeouts (60 s / 150 s for KQL), and has a circuit breaker. Key Vault and SQL use their SDKs' built-in retries.
+- **Short server-side caches:** **Overview** (60 s), **Exceptions** (30 s) and **Operation timeline** (60 s) results are cached per application and filter, so many people watching the same app share one set of queries. The user's access is checked before the cache is used. **Refresh** and auto-refresh always fetch fresh data. Tune with `Caching:OverviewSeconds`, `ExceptionsSeconds` and `OperationSeconds`; `0` disables a cache.
+- **Hidden tabs don't poll:** **Live logs** stops polling while the browser tab is hidden and catches up as soon as it's visible again. The Exceptions auto-refresh also skips hidden tabs.
 
 ## Azure setup
 
@@ -169,6 +194,7 @@ Users don't need any Azure roles. They only sign in with B2C.
 "Administration": {
   "AdminEmails": ["you@example.com"]  // who sees the Admin page
 },
+"Caching": { "OverviewSeconds": 60, "ExceptionsSeconds": 30, "OperationSeconds": 60 },
 "RateLimits": {           // per signed-in user, per minute
   "ApiPerMinute": 600, "QueryPerMinute": 30, "AiPerMinute": 10, "OverviewPerMinute": 30
 },
@@ -217,8 +243,13 @@ npm start
 Tests:
 
 ```bash
-cd backend && dotnet test
+cd backend && dotnet test     # unit tests + API integration tests, incl. sign-in/authorization end to end
+cd frontend
+npm run test:ci               # component and service unit tests (Vitest)
+npm run build && npm run e2e  # Playwright smoke test of the production build against a mocked API
 ```
+
+The authorization tests (`AuthorizationTests.cs`) start the API in the Production environment with B2C settings and send it locally signed tokens. They check that missing, expired, wrongly signed or wrong-audience tokens get 401, a token without the scope gets 403, users only see and query their own applications, and admin endpoints are closed to non-admins. The first `npm run e2e` needs `npx playwright install chromium`.
 
 ## Deploy (single App Service)
 
@@ -229,28 +260,64 @@ cd backend/AppInsightsLogs.Api
 dotnet publish -c Release -o ./publish      # add -p:SkipFrontend=true to publish the API only
 ```
 
-Enable a system-assigned managed identity on the App Service and grant it the roles in [Permissions](#4-permissions-for-the-apis-identity). Set the settings above as App Service application settings, e.g. `AzureAdB2C__SpaClientId`, `KeyVault__VaultUri` and `ConnectionStrings__LogViewerDb`. No credential setting is needed: in Azure the API uses the managed identity automatically. Add the App Service URL as a redirect URI on the B2C SPA registration.
+For a new environment, use the Bicep template and the pipeline described in [Deployment setup](#deployment-setup); they do all of this for you. Manually: enable a system-assigned managed identity on the App Service and grant it the roles in [Permissions](#4-permissions-for-the-apis-identity). Set the settings above as App Service application settings, e.g. `AzureAdB2C__SpaClientId`, `KeyVault__VaultUri` and `ConnectionStrings__LogViewerDb`. No credential setting is needed: in Azure the API uses the managed identity automatically. Add the App Service URL as a redirect URI on the B2C SPA registration.
 
 ## CI/CD and code scanning (GitHub Actions)
 
 | Workflow | Runs on | What it does |
 | --- | --- | --- |
-| [`ci.yml`](.github/workflows/ci.yml) | every PR, pushes to `main` | **API**: build with .NET code analyzers (warnings fail the build), unit tests, vulnerable NuGet package check. **Client**: ESLint (angular-eslint, incl. accessibility rules), production build, `npm audit`. |
+| [`ci.yml`](.github/workflows/ci.yml) | every PR, pushes to `main` | **API**: build with .NET code analyzers (warnings fail the build), unit and authorization integration tests, vulnerable NuGet package check. **Client**: ESLint (angular-eslint, incl. accessibility rules), Vitest unit tests, production build, Playwright smoke test, `npm audit`. **Infra**: Bicep build and lint. |
 | [`codeql.yml`](.github/workflows/codeql.yml) | PRs to `main`, pushes to `main`, weekly | **CodeQL** security analysis (`security-extended` queries) for C# and TypeScript. Findings appear under *Security → Code scanning*. |
 | [`dependency-review.yml`](.github/workflows/dependency-review.yml) | every PR | Blocks PRs that add npm or NuGet packages with high or critical vulnerabilities. |
 | [`dependabot.yml`](.github/dependabot.yml) | weekly | PRs to update npm, NuGet and GitHub Actions dependencies. |
-| [`deploy.yml`](.github/workflows/deploy.yml) | pushes to `main`, manual | Tests, then `dotnet publish` (which also builds the Angular app into `wwwroot`) and deploys the package to **one App Service**. |
+| [`deploy.yml`](.github/workflows/deploy.yml) | pushes to `main`, manual | Tests and `dotnet publish` (which also builds the Angular app into `wwwroot`). Then it updates the database (schema + identity grants), deploys to the **staging slot**, waits for `/healthz` and **swaps** into production. |
 
 All of these tools are free for public repositories. Also turn on **Settings → Code security**: *Dependabot alerts*, *Dependabot security updates*, *Secret scanning* and *Push protection* (free for public repos). Make `main` the **default branch** (Settings → General), because CodeQL's weekly scan and Dependabot run against the default branch.
 
 ### Deployment setup
 
-1. **Create the App Service**: Linux, runtime stack **.NET 10**. Enable its system-assigned managed identity, grant the roles in [Permissions](#4-permissions-for-the-apis-identity), and add the app settings from [Configuration](#configuration), e.g. `AzureAdB2C__SpaClientId` and `KeyVault__VaultUri`.
-2. In GitHub, go to **Settings → Secrets and variables → Actions** and add the **variable** `AZURE_WEBAPP_NAME` (the App Service name).
-3. Choose how the workflow signs in to Azure:
-   - **Option A: OpenID Connect (recommended, no stored password).** Create an app registration or user-assigned managed identity. Add a *federated credential* for GitHub Actions: repository `shivachikkula/AppServiceLogs`, entity *Environment*, name `production`. Give it the **Website Contributor** role on the App Service. Then add the variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`.
-   - **Option B: publish profile (no Entra ID permissions needed).** In the App Service, turn on *Configuration → General settings → SCM Basic Auth Publishing Credentials*, then *Download publish profile*. Store the file's contents as the **secret** `AZURE_WEBAPP_PUBLISH_PROFILE`. The workflow uses this option when `AZURE_CLIENT_ID` is not set.
-4. Optionally add required reviewers to the `production` environment (Settings → Environments), so each deployment waits for approval.
+**1. Create the Azure resources with Bicep** ([`infra/main.bicep`](infra/main.bicep)). Copy `infra/main.example.bicepparam` to e.g. `infra/main.prod.bicepparam`, fill it in, and deploy once per environment:
+
+```bash
+az group create -n osse-logviewer-prod-rg -l eastus
+az deployment group create -g osse-logviewer-prod-rg -f infra/main.bicep -p infra/main.prod.bicepparam
+```
+
+This creates:
+- The App Service plan and web app: Linux, .NET 10, HTTPS only, health check `/healthz`, basic-auth publishing off, and a **staging slot**. The app and the slot each have a system-assigned managed identity.
+- All app settings and the SQL connection string (`Authentication=Active Directory Managed Identity`).
+- The viewer's own Application Insights and Log Analytics.
+- Key Vault with RBAC, purge protection and **Key Vault Secrets User** for both identities. Set `createKeyVault = false` to use an existing vault in the group.
+- Azure SQL with Microsoft Entra-only authentication, administered by an Entra group you name.
+- **Monitoring Reader** for both identities on every Application Insights resource in `monitoredAppInsightsIds`, including ones in other resource groups or subscriptions.
+- Alerts for HTTP 5xx, the health check and slow responses, sent to `alertEmail`.
+
+CI builds and lints the templates on every PR.
+
+**2. Sign GitHub in to Azure with OpenID Connect.** Create an app registration or user-assigned identity and add a *federated credential* for GitHub Actions: repository `shivachikkula/AppServiceLogs`, entity *Environment*, name `production`. Then:
+- Give it **Website Contributor** on the web app, and **SQL Server Contributor** on the SQL server (for the temporary firewall rule).
+- Add it to the SQL admin group, so the pipeline can run the database scripts.
+
+**3. Repository variables** (Settings → Secrets and variables → Actions → Variables):
+
+| Variable | Value |
+| --- | --- |
+| `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | The identity from step 2 |
+| `AZURE_WEBAPP_NAME` | `webAppName` output of the Bicep deployment |
+| `AZURE_RESOURCE_GROUP` | The resource group |
+| `SQL_SERVER_NAME` | `sqlServerName` output. The pipeline then runs `database/schema.sql` and `database/grant-app-identity.sql` on every deployment; both are safe to re-run. |
+| `USE_STAGING_SLOT` | `true`: deploy to the staging slot, wait for its `/healthz`, then **swap**. Production is only touched if staging is healthy. |
+
+**4. Approvals.** Add required reviewers to the `production` environment (Settings → Environments), so each deployment waits for approval.
+
+Every deployment ends by checking production `/healthz`.
+
+<details><summary>Without OpenID Connect (publish profile)</summary>
+
+If you can't create a federated identity, store the App Service publish profile as the secret `AZURE_WEBAPP_PUBLISH_PROFILE` and leave `AZURE_CLIENT_ID` unset. The workflow then deploys straight to production, with no database step and no slot. Publish profiles need *SCM Basic Auth Publishing Credentials* turned on, which the Bicep template turns off, so this option is for manually created App Services only.
+</details>
+
+All GitHub Actions are pinned to commit SHAs (with the version in a comment). Dependabot proposes updates.
 
 ## API
 

@@ -70,6 +70,8 @@ export interface ExceptionGroup {
 
 export interface ExceptionsFilter {
   appKey: string;
+  /** Bypass the server's short cache (the Refresh button). */
+  fresh?: boolean;
   rangeMinutes: number;
   search?: string;
   problemId?: string;

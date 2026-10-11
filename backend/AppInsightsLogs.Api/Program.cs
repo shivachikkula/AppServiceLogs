@@ -6,6 +6,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.HttpOverrides;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
+using OpenTelemetry.Instrumentation.AspNetCore;
+using OpenTelemetry.Metrics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -34,7 +37,16 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<AzureCredentials>().De
 // Key Vault has its own credential: the managed identity whenever the app runs in Azure.
 builder.Services.AddKeyedSingleton(AzureCredentials.KeyVaultKey, (sp, _) => sp.GetRequiredService<AzureCredentials>().KeyVault);
 
-builder.Services.AddHttpClient<AppInsightsQueryClient>(client => client.Timeout = TimeSpan.FromSeconds(60));
+// Retries (429/5xx/timeouts, honouring Retry-After), per-attempt timeout and a circuit breaker for Application
+// Insights. KQL can legitimately take tens of seconds, so the attempt timeout is generous.
+builder.Services.AddHttpClient<AppInsightsQueryClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .AddStandardResilienceHandler(options =>
+    {
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(60);
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(150);
+        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(120);
+        options.Retry.MaxRetryAttempts = 2;
+    });
 builder.Services.AddScoped<TelemetryService>();
 builder.Services.AddScoped<ApplicationCatalog>();
 builder.Services.AddScoped<QueryService>();
@@ -44,7 +56,16 @@ builder.Services.AddScoped<OperationService>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddScoped<DiagnosticsService>();
 builder.Services.AddHealthChecks().AddDbContextCheck<LogViewerDbContext>("database");
-builder.Services.AddHttpClient<KqlAssistant>(client => client.Timeout = TimeSpan.FromSeconds(60));
+builder.Services.AddHttpClient<KqlAssistant>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .AddStandardResilienceHandler(options =>
+    {
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(60);
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(130);
+        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(120);
+        options.Retry.MaxRetryAttempts = 1;
+    });
+builder.Services.Configure<CachingOptions>(builder.Configuration.GetSection(CachingOptions.SectionName));
+builder.Services.AddSingleton<QueryCache>();
 builder.Services.AddSingleton<ISecretProvider, KeyVaultSecretProvider>();
 builder.Services.AddMemoryCache();
 
@@ -133,6 +154,20 @@ builder.Services.AddProblemDetails();
 // Angular dev server (appsettings.Development.json).
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
+
+// Monitoring of the viewer itself (requests, dependencies, exceptions, logs, custom metrics) goes to its own
+// Application Insights resource when APPLICATIONINSIGHTS_CONNECTION_STRING is set (App Service sets it when
+// Application Insights is enabled on the web app). Without it, nothing is exported.
+var monitoringConnectionString = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
+if (!string.IsNullOrWhiteSpace(monitoringConnectionString))
+{
+    builder.Services.AddOpenTelemetry()
+        .UseAzureMonitor(options => options.ConnectionString = monitoringConnectionString)
+        .WithMetrics(metrics => metrics.AddMeter(AppMetrics.MeterName));
+    // Health probes every few seconds are noise in the request telemetry.
+    builder.Services.Configure<AspNetCoreTraceInstrumentationOptions>(options =>
+        options.Filter = context => !context.Request.Path.StartsWithSegments("/healthz"));
+}
 
 builder.Services.AddApiRateLimits(builder.Configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>() ?? new RateLimitOptions());
 

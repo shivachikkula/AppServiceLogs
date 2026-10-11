@@ -47,6 +47,17 @@ public class HardeningTests
     }
 
     [Fact]
+    public async Task WithMonitoringConnectionString_AppStartsAndServesRequests()
+    {
+        var settings = DevelopmentSettings();
+        settings["APPLICATIONINSIGHTS_CONNECTION_STRING"] = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://localhost:9/";
+        using var app = CreateApp(Environments.Development, settings);
+        using var client = app.CreateClient();
+
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/auth-config")).StatusCode);
+    }
+
+    [Fact]
     public async Task TooManyRequests_Returns429_WithRetryAfter()
     {
         using var app = CreateApp(Environments.Development, DevelopmentSettings(apiPerMinute: 2));

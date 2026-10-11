@@ -1,7 +1,12 @@
 name: Deploy to Azure App Service
 
 # Builds the Angular client and the .NET API into one package (dotnet publish copies the Angular build into
-# wwwroot) and deploys it to a single App Service. Setup: see "Deployment" in README.md.
+# wwwroot) and deploys it. Infrastructure comes from infra/main.bicep; setup steps are in README.md ("Deployment").
+#
+# With OpenID Connect (AZURE_CLIENT_ID set):
+#   1. database: run database/schema.sql and grant-app-identity.sql (when SQL_SERVER_NAME is set)
+#   2. deploy to the "staging" slot, wait for /healthz, then swap into production (when USE_STAGING_SLOT is 'true')
+# With a publish profile: deploy straight to production (no database step, no slot).
 
 on:
   push:
@@ -20,13 +25,13 @@ jobs:
     name: Build and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -41,10 +46,17 @@ jobs:
       - name: Check that the client was bundled
         run: test -f "${{ runner.temp }}/app/wwwroot/index.html"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app
           path: ${{ runner.temp }}/app
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: database
+          path: database
           if-no-files-found: error
           retention-days: 7
 
@@ -56,46 +68,117 @@ jobs:
       contents: read
       id-token: write # OpenID Connect sign-in to Azure (no stored Azure password)
     environment:
-      name: production
-      url: ${{ steps.deploy-oidc.outputs.webapp-url || steps.deploy-profile.outputs.webapp-url }}
+      name: production # add required reviewers to this environment to approve each deployment
+      url: ${{ steps.urls.outputs.production }}
+    env:
+      WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      SQL_SERVER_NAME: ${{ vars.SQL_SERVER_NAME }}
+      SQL_DATABASE_NAME: ${{ vars.SQL_DATABASE_NAME || 'logviewer' }}
+      USE_OIDC: ${{ vars.AZURE_CLIENT_ID != '' }}
+      USE_SLOT: ${{ vars.USE_STAGING_SLOT == 'true' && vars.AZURE_CLIENT_ID != '' }}
     steps:
       - name: Check configuration
-        env:
-          WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         run: |
           if [ -z "$WEBAPP_NAME" ]; then
             echo "::error::Set the repository variable AZURE_WEBAPP_NAME (Settings > Secrets and variables > Actions > Variables)."
             exit 1
           fi
+          if [ "$USE_OIDC" = "true" ] && [ -z "$RESOURCE_GROUP" ] && { [ "$USE_SLOT" = "true" ] || [ -n "$SQL_SERVER_NAME" ]; }; then
+            echo "::error::Set AZURE_RESOURCE_GROUP: the slot swap and the database step need it."
+            exit 1
+          fi
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app
           path: app
 
-      # Option A (recommended): OpenID Connect with a federated credential. Used when AZURE_CLIENT_ID is set.
+      # ---------------- Option A: OpenID Connect ----------------
       - name: Sign in to Azure (OpenID Connect)
-        if: ${{ vars.AZURE_CLIENT_ID != '' }}
-        uses: azure/login@v3
+        if: env.USE_OIDC == 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Deploy (OpenID Connect)
-        id: deploy-oidc
-        if: ${{ vars.AZURE_CLIENT_ID != '' }}
-        uses: azure/webapps-deploy@v3
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: env.USE_OIDC == 'true' && env.SQL_SERVER_NAME != ''
+        with:
+          name: database
+          path: database
+
+      - name: Open the SQL firewall for this runner
+        if: env.USE_OIDC == 'true' && env.SQL_SERVER_NAME != ''
+        run: |
+          ip=$(curl -fsS https://api.ipify.org)
+          az sql server firewall-rule create -g "$RESOURCE_GROUP" -s "$SQL_SERVER_NAME" \
+            -n "github-${{ github.run_id }}" --start-ip-address "$ip" --end-ip-address "$ip" --output none
+
+      - name: Update the database schema and grants
+        if: env.USE_OIDC == 'true' && env.SQL_SERVER_NAME != ''
+        run: |
+          curl -fsSL https://github.com/microsoft/go-sqlcmd/releases/download/v1.10.0/sqlcmd-linux-amd64.tar.bz2 | tar -xj sqlcmd
+          server="$SQL_SERVER_NAME.database.windows.net"
+          slot=""
+          if [ "$USE_SLOT" = "true" ]; then slot="$WEBAPP_NAME/slots/staging"; fi
+          # The signed-in deployment identity must be in the SQL server's Microsoft Entra admin group.
+          ./sqlcmd -S "$server" -d "$SQL_DATABASE_NAME" --authentication-method ActiveDirectoryDefault -b -i database/schema.sql
+          ./sqlcmd -S "$server" -d "$SQL_DATABASE_NAME" --authentication-method ActiveDirectoryDefault -b \
+            -v AppName="$WEBAPP_NAME" SlotName="$slot" -i database/grant-app-identity.sql
+
+      - name: Close the SQL firewall
+        if: always() && env.USE_OIDC == 'true' && env.SQL_SERVER_NAME != ''
+        run: az sql server firewall-rule delete -g "$RESOURCE_GROUP" -s "$SQL_SERVER_NAME" -n "github-${{ github.run_id }}" --output none || true
+
+      - name: Deploy to the staging slot
+        if: env.USE_SLOT == 'true'
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          slot-name: staging
+          package: app
+
+      - name: Wait for the staging slot to be healthy
+        if: env.USE_SLOT == 'true'
+        run: |
+          host=$(az webapp show -g "$RESOURCE_GROUP" -n "$WEBAPP_NAME" --slot staging --query defaultHostName -o tsv)
+          for attempt in $(seq 1 30); do
+            if curl -fsS "https://$host/healthz" >/dev/null; then echo "staging is healthy"; exit 0; fi
+            sleep 10
+          done
+          echo "::error::https://$host/healthz did not become healthy; production was not changed."
+          exit 1
+
+      - name: Swap staging into production
+        if: env.USE_SLOT == 'true'
+        run: az webapp deployment slot swap -g "$RESOURCE_GROUP" -n "$WEBAPP_NAME" --slot staging --target-slot production
+
+      - name: Deploy to production (OpenID Connect, no slot)
+        if: env.USE_OIDC == 'true' && env.USE_SLOT != 'true'
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
         with:
           app-name: ${{ vars.AZURE_WEBAPP_NAME }}
           package: app
 
-      # Option B: the App Service publish profile stored as a secret. Used when AZURE_CLIENT_ID is not set.
-      - name: Deploy (publish profile)
-        id: deploy-profile
-        if: ${{ vars.AZURE_CLIENT_ID == '' }}
-        uses: azure/webapps-deploy@v3
+      # ---------------- Option B: publish profile ----------------
+      - name: Deploy to production (publish profile)
+        if: env.USE_OIDC != 'true'
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
         with:
           app-name: ${{ vars.AZURE_WEBAPP_NAME }}
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: app
+
+      - name: Check production health
+        id: urls
+        run: |
+          url="https://$WEBAPP_NAME.azurewebsites.net"
+          echo "production=$url" >> "$GITHUB_OUTPUT"
+          for attempt in $(seq 1 30); do
+            if curl -fsS "$url/healthz" >/dev/null; then echo "production is healthy"; exit 0; fi
+            sleep 10
+          done
+          echo "::error::$url/healthz is not healthy after the deployment."
+          exit 1

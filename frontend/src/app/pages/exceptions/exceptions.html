@@ -8,7 +8,7 @@
       <input type="checkbox" [checked]="autoRefresh()" (change)="toggleAutoRefresh($any($event.target).checked)" />
       Auto-refresh (30s)
     </label>
-    <button type="button" (click)="load()" [disabled]="loading()">↻ Refresh</button>
+    <button type="button" (click)="load(true)" [disabled]="loading()">↻ Refresh</button>
   </div>
 </section>
 

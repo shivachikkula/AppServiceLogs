@@ -97,15 +97,15 @@ export class Overview {
   protected refresh(): void {
     const appKey = this.appContext.selectedKey();
     if (appKey) {
-      this.load(appKey, this.rangeMinutes());
+      this.load(appKey, this.rangeMinutes(), true);
     }
   }
 
-  private load(appKey: string, range: number): void {
+  private load(appKey: string, range: number, fresh = false): void {
     this.sub?.unsubscribe();
     this.loading.set(true); // the previous render stays visible (dimmed) while reloading
     this.error.set(null);
-    this.sub = this.api.getOverview(appKey, range).subscribe({
+    this.sub = this.api.getOverview(appKey, range, fresh).subscribe({
       next: (data) => {
         this.data.set(data);
         this.loading.set(false);

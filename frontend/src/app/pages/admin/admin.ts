@@ -211,7 +211,16 @@ export class Admin {
   }
 
   protected actionLabel(action: string): string {
-    return { query: 'Query', 'ai.generate': 'AI: write', 'ai.fix': 'AI: fix' }[action] ?? action;
+    return (
+      {
+        query: 'Query',
+        'ai.generate': 'AI: write',
+        'ai.fix': 'AI: fix',
+        'admin.grant': 'Admin: grant',
+        'admin.revoke': 'Admin: revoke',
+        'admin.rename': 'Admin: rename',
+      }[action] ?? action
+    );
   }
 
   // ---- Diagnostics ----

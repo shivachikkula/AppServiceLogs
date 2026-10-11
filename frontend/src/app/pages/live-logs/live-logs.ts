@@ -69,7 +69,11 @@ export class LiveLogs implements OnInit {
   private generation = 0;
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => this.stop());
+    inject(DestroyRef).onDestroy(() => {
+      this.stop();
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    });
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
 
     // (Re)start tailing whenever a different application is selected in the header.
     effect(() => {
@@ -180,12 +184,21 @@ export class LiveLogs implements OnInit {
       });
   }
 
+  /** Hidden tabs stop polling (no load on Application Insights); they catch up as soon as they are visible again. */
+  private readonly onVisibilityChange = () => {
+    if (document.hidden) {
+      clearTimeout(this.timer);
+    } else if (!this.paused() && !this.loading()) {
+      this.poll();
+    }
+  };
+
   private finish(generation: number): void {
     if (generation !== this.generation) {
       return;
     }
     this.loading.set(false);
-    if (!this.paused()) {
+    if (!this.paused() && !document.hidden) {
       this.timer = setTimeout(() => this.poll(), this.intervalSeconds() * 1000);
     }
   }

@@ -8,7 +8,7 @@ public sealed class QueryAuditEntry
     public required string Email { get; set; }
     public required string AppKey { get; set; }
 
-    /// <summary><see cref="AuditActions"/>: query, ai.generate or ai.fix.</summary>
+    /// <summary><see cref="AuditActions"/>: query, ai.generate, ai.fix, or an admin change (admin.grant, admin.revoke, admin.rename).</summary>
     public required string Action { get; set; }
 
     /// <summary>The KQL that was run, or the description sent to the AI assistant.</summary>
@@ -26,4 +26,7 @@ public static class AuditActions
     public const string Query = "query";
     public const string AiGenerate = "ai.generate";
     public const string AiFix = "ai.fix";
+    public const string AdminGrant = "admin.grant";
+    public const string AdminRevoke = "admin.revoke";
+    public const string AdminRename = "admin.rename";
 }

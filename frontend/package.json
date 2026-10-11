@@ -8,7 +8,9 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "lint": "ng lint",
-    "postinstall": "node scripts/patch-monaco-exports.mjs"
+    "postinstall": "node scripts/patch-monaco-exports.mjs",
+    "test:ci": "ng test --watch=false",
+    "e2e": "playwright test"
   },
   "private": true,
   "packageManager": "npm@10.9.7",
@@ -30,6 +32,7 @@
     "@angular/cli": "^21.2.24",
     "@angular/compiler-cli": "^21.2.0",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.0",
     "angular-eslint": "21.4.0",
     "eslint": "^10.3.0",
     "jsdom": "^28.0.0",

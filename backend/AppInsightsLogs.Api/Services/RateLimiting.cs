@@ -14,6 +14,11 @@ public static class RateLimiting
             options.OnRejected = async (context, cancellationToken) =>
             {
                 var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var wait) ? (int)Math.Ceiling(wait.TotalSeconds) : 60;
+                var partition = PartitionKey(context.HttpContext);
+                AppMetrics.RateLimited.Add(1, new KeyValuePair<string, object?>("path", context.HttpContext.Request.Path.Value));
+                context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("AppInsightsLogs.Api.RateLimiting")
+                    .LogWarning("Rate limit reached by {Partition} on {Path}", partition, context.HttpContext.Request.Path.Value);
                 context.HttpContext.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
                 await Results.Problem(
                     title: "TooManyRequests",
