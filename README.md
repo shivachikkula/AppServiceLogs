@@ -91,6 +91,24 @@ Run through this once in each environment, such as test and production:
 | **Startup validation** | Outside Development, the app refuses to start if `ConnectionStrings:LogViewerDb` or `KeyVault:VaultUri` is missing, a URL isn't `https://`, a credential name is unknown, or only half of the Azure OpenAI settings are set. The log lists every problem. A broken deployment therefore fails at once (and the health check keeps the old instance) instead of on the first request. |
 | **Forwarded headers** | The app trusts App Service's `X-Forwarded-Proto` / `X-Forwarded-For`, so HTTPS detection and per-IP limits for signed-out requests work behind its front end. |
 
+## Monitoring the viewer itself
+
+Set `APPLICATIONINSIGHTS_CONNECTION_STRING` (App Service sets it when you turn on Application Insights for the web app) and the API sends its own telemetry there through OpenTelemetry. Use a **separate** Application Insights resource from the applications you view. Without the setting, nothing is exported.
+
+- **Requests, dependencies and exceptions:** dependencies include calls to Application Insights, Key Vault, Azure OpenAI and SQL. Logs are included, but `/healthz` probes are filtered out.
+- **Custom metrics** (meter `OsseLogViewer`):
+  - `osse.queries`, by outcome: succeeded, failed or rejected
+  - `osse.ai_requests`
+  - `osse.access_denied`
+  - `osse.rate_limited`
+- **Security events in the log:** access denied (user and app key), rate limits reached, rejected B2C tokens (with the reason), and every admin change. Admin changes (`admin.grant`, `admin.revoke`, `admin.rename`) are also written to the `QueryAudit` table, so **Admin → Audit log** shows who changed access and when.
+
+Suggested alerts (the Bicep template in `infra/` creates the first three):
+- HTTP 5xx above a threshold
+- failed health checks
+- slow responses
+- a jump in `osse.access_denied` or `osse.rate_limited`
+
 ## Azure setup
 
 ### 1. Azure AD B2C (user sign-in)

@@ -19,7 +19,8 @@ public sealed partial class ApplicationCatalog(
     LogViewerDbContext db,
     ISecretProvider secrets,
     IMemoryCache cache,
-    IOptions<KeyVaultOptions> keyVaultOptions)
+    IOptions<KeyVaultOptions> keyVaultOptions,
+    ILogger<ApplicationCatalog>? logger = null)
 {
     public Task<IReadOnlyList<ApplicationSummary>> ListForUserAsync(string email, CancellationToken cancellationToken) =>
         QueryDatabaseAsync<IReadOnlyList<ApplicationSummary>>(async () => await db.UserApplications
@@ -50,7 +51,7 @@ public sealed partial class ApplicationCatalog(
             .Where(a => a.Email == email && a.AppKey == appKey)
             .Select(a => new { a.ApplicationName, a.AppKey })
             .FirstOrDefaultAsync(cancellationToken))
-            ?? throw new AppInsightsQueryException(HttpStatusCode.Forbidden, "You do not have access to this application.", "ApplicationForbidden");
+            ?? throw Denied(email, appKey);
 
         var applicationId = await ResolveApplicationIdAsync(grant.AppKey, grant.ApplicationName, bypassCache: false, cancellationToken);
 
@@ -91,6 +92,13 @@ public sealed partial class ApplicationCatalog(
     }
 
     public static bool IsValidAppKey(string? appKey) => appKey is not null && SecretNamePattern().IsMatch(appKey);
+
+    private AppInsightsQueryException Denied(string email, string appKey)
+    {
+        AppMetrics.AccessDenied.Add(1);
+        logger?.LogWarning("Access denied: {Email} requested application {AppKey}, which is not assigned to them", email, appKey);
+        return new AppInsightsQueryException(HttpStatusCode.Forbidden, "You do not have access to this application.", "ApplicationForbidden");
+    }
 
     private static async Task<T> QueryDatabaseAsync<T>(Func<Task<T>> query)
     {

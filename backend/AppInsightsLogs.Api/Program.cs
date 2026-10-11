@@ -6,6 +6,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.HttpOverrides;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
+using OpenTelemetry.Instrumentation.AspNetCore;
+using OpenTelemetry.Metrics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -133,6 +136,20 @@ builder.Services.AddProblemDetails();
 // Angular dev server (appsettings.Development.json).
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
+
+// Monitoring of the viewer itself (requests, dependencies, exceptions, logs, custom metrics) goes to its own
+// Application Insights resource when APPLICATIONINSIGHTS_CONNECTION_STRING is set (App Service sets it when
+// Application Insights is enabled on the web app). Without it, nothing is exported.
+var monitoringConnectionString = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
+if (!string.IsNullOrWhiteSpace(monitoringConnectionString))
+{
+    builder.Services.AddOpenTelemetry()
+        .UseAzureMonitor(options => options.ConnectionString = monitoringConnectionString)
+        .WithMetrics(metrics => metrics.AddMeter(AppMetrics.MeterName));
+    // Health probes every few seconds are noise in the request telemetry.
+    builder.Services.Configure<AspNetCoreTraceInstrumentationOptions>(options =>
+        options.Filter = context => !context.Request.Path.StartsWithSegments("/healthz"));
+}
 
 builder.Services.AddApiRateLimits(builder.Configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>() ?? new RateLimitOptions());
 

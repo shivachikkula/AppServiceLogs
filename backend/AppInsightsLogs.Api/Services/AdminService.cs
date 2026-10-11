@@ -60,16 +60,17 @@ public sealed class AdminService(LogViewerDbContext db, ApplicationCatalog catal
         return new AdminGrant(grant.Id, grant.Email, grant.ApplicationName, grant.AppKey, Utc(grant.CreatedAt));
     }
 
-    public async Task<bool> DeleteGrantAsync(int id, CancellationToken cancellationToken)
+    /// <summary>Removes a grant; returns what was removed (for the audit log), or null if it did not exist.</summary>
+    public async Task<AdminGrant?> DeleteGrantAsync(int id, CancellationToken cancellationToken)
     {
         var grant = await db.UserApplications.FindAsync([id], cancellationToken);
         if (grant is null)
         {
-            return false;
+            return null;
         }
         db.UserApplications.Remove(grant);
         await db.SaveChangesAsync(cancellationToken);
-        return true;
+        return new AdminGrant(grant.Id, grant.Email, grant.ApplicationName, grant.AppKey, Utc(grant.CreatedAt));
     }
 
     public async Task<IReadOnlyList<AdminApplication>> ListApplicationsAsync(CancellationToken cancellationToken)

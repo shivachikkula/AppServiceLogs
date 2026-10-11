@@ -59,8 +59,8 @@ public class AdminServiceTests
         var (admin, db) = Create();
         var id = db.UserApplications.Single(g => g.AppKey == "payments-api").Id;
 
-        Assert.True(await admin.DeleteGrantAsync(id, CancellationToken.None));
-        Assert.False(await admin.DeleteGrantAsync(id, CancellationToken.None));
+        Assert.Equal("payments-api", (await admin.DeleteGrantAsync(id, CancellationToken.None))?.AppKey);
+        Assert.Null(await admin.DeleteGrantAsync(id, CancellationToken.None));
         Assert.Single(db.UserApplications);
     }
 

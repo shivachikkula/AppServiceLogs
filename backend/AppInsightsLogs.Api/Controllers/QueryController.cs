@@ -30,11 +30,16 @@ public sealed class QueryController(QueryService queries, KqlAssistant assistant
             async applicationId =>
             {
                 var result = await queries.RunAsync(applicationId, request.Query ?? string.Empty, request.RangeMinutes, cancellationToken);
+                AppMetrics.QueriesRun.Add(1, new KeyValuePair<string, object?>("outcome", "succeeded"));
                 await audit.RecordAsync(NewEntry(AuditActions.Query, request.AppKey, request.Query, request.RangeMinutes, stopwatch, succeeded: true, rowCount: result.TotalRows), cancellationToken);
                 return result;
             },
             cancellationToken,
-            ex => audit.RecordAsync(NewEntry(AuditActions.Query, request.AppKey, request.Query, request.RangeMinutes, stopwatch, succeeded: false, error: ex.Message), cancellationToken));
+            ex =>
+            {
+                AppMetrics.QueriesRun.Add(1, new KeyValuePair<string, object?>("outcome", ex.Code == "QueryNotAllowed" ? "rejected" : "failed"));
+                return audit.RecordAsync(NewEntry(AuditActions.Query, request.AppKey, request.Query, request.RangeMinutes, stopwatch, succeeded: false, error: ex.Message), cancellationToken);
+            });
     }
 
     [HttpPost("generate")]
@@ -55,11 +60,16 @@ public sealed class QueryController(QueryService queries, KqlAssistant assistant
                 }
                 var schema = await queries.GetSchemaAsync(applicationId, cancellationToken);
                 var generated = await assistant.GenerateAsync(request, schema, cancellationToken);
+                AppMetrics.AiRequests.Add(1, new KeyValuePair<string, object?>("outcome", "succeeded"));
                 await audit.RecordAsync(NewEntry(action, request.AppKey, text, null, stopwatch, succeeded: true), cancellationToken);
                 return generated;
             },
             cancellationToken,
-            ex => audit.RecordAsync(NewEntry(action, request.AppKey, text, null, stopwatch, succeeded: false, error: ex.Message), cancellationToken));
+            ex =>
+            {
+                AppMetrics.AiRequests.Add(1, new KeyValuePair<string, object?>("outcome", "failed"));
+                return audit.RecordAsync(NewEntry(action, request.AppKey, text, null, stopwatch, succeeded: false, error: ex.Message), cancellationToken);
+            });
     }
 
     private QueryAuditEntry NewEntry(

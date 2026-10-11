@@ -1,3 +1,4 @@
+using AppInsightsLogs.Api.Data;
 using AppInsightsLogs.Api.Models;
 using AppInsightsLogs.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -10,7 +11,7 @@ namespace AppInsightsLogs.Api.Controllers;
 [Authorize] // the default policy (valid B2C token, required scope) ...
 [Authorize(Policy = AdminPolicy)] // ... and an admin email
 [Route("api/admin")]
-public sealed class AdminController(AdminService admin, DiagnosticsService diagnostics) : ControllerBase
+public sealed class AdminController(AdminService admin, DiagnosticsService diagnostics, AuditLog audit, ILogger<AdminController> logger) : ControllerBase
 {
     public const string AdminPolicy = "Admin";
 
@@ -20,11 +21,24 @@ public sealed class AdminController(AdminService admin, DiagnosticsService diagn
 
     [HttpPost("grants")]
     public Task<ActionResult<AdminGrant>> CreateGrant([FromBody] CreateGrantRequest request, CancellationToken cancellationToken) =>
-        Handle(() => admin.CreateGrantAsync(request, cancellationToken));
+        Handle(async () =>
+        {
+            var grant = await admin.CreateGrantAsync(request, cancellationToken);
+            await RecordAsync(AuditActions.AdminGrant, grant.AppKey, $"Granted {grant.Email} access to {grant.ApplicationName}", cancellationToken);
+            return grant;
+        });
 
     [HttpDelete("grants/{id:int}")]
-    public async Task<IActionResult> DeleteGrant(int id, CancellationToken cancellationToken) =>
-        await admin.DeleteGrantAsync(id, cancellationToken) ? NoContent() : NotFound();
+    public async Task<IActionResult> DeleteGrant(int id, CancellationToken cancellationToken)
+    {
+        var removed = await admin.DeleteGrantAsync(id, cancellationToken);
+        if (removed is null)
+        {
+            return NotFound();
+        }
+        await RecordAsync(AuditActions.AdminRevoke, removed.AppKey, $"Removed {removed.Email}'s access to {removed.ApplicationName}", cancellationToken);
+        return NoContent();
+    }
 
     [HttpGet("applications")]
     public Task<ActionResult<IReadOnlyList<AdminApplication>>> GetApplications(CancellationToken cancellationToken) =>
@@ -32,7 +46,12 @@ public sealed class AdminController(AdminService admin, DiagnosticsService diagn
 
     [HttpPut("applications/{appKey}")]
     public Task<ActionResult<int>> RenameApplication(string appKey, [FromBody] RenameApplicationRequest request, CancellationToken cancellationToken) =>
-        Handle(() => admin.RenameApplicationAsync(appKey, request.ApplicationName, cancellationToken));
+        Handle(async () =>
+        {
+            var count = await admin.RenameApplicationAsync(appKey, request.ApplicationName, cancellationToken);
+            await RecordAsync(AuditActions.AdminRename, appKey, $"Renamed application to {request.ApplicationName?.Trim()} ({count} grants)", cancellationToken);
+            return count;
+        });
 
     [HttpPost("applications/{appKey}/check")]
     public Task<ActionResult<ApplicationCheck>> CheckApplication(string appKey, CancellationToken cancellationToken) =>
@@ -51,6 +70,24 @@ public sealed class AdminController(AdminService admin, DiagnosticsService diagn
     [HttpGet("diagnostics")]
     public Task<ActionResult<IReadOnlyList<DiagnosticCheck>>> GetDiagnostics(CancellationToken cancellationToken) =>
         Handle(() => diagnostics.RunAsync(cancellationToken));
+
+    /// <summary>Admin changes go to the same audit log as queries, and to the application log.</summary>
+    private Task RecordAsync(string action, string appKey, string text, CancellationToken cancellationToken)
+    {
+        var email = UserClaims.GetEmail(User) ?? "(no email claim)";
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Admin change by {Admin}: {Action} {AppKey}: {Text}", email, action, appKey, text);
+        }
+        return audit.RecordAsync(new QueryAuditEntry
+        {
+            Email = email,
+            AppKey = appKey,
+            Action = action,
+            Text = text,
+            Succeeded = true,
+        }, cancellationToken);
+    }
 
     private async Task<ActionResult<T>> Handle<T>(Func<Task<T>> action)
     {
