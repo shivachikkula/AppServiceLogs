@@ -243,8 +243,13 @@ npm start
 Tests:
 
 ```bash
-cd backend && dotnet test
+cd backend && dotnet test     # unit tests + API integration tests, incl. sign-in/authorization end to end
+cd frontend
+npm run test:ci               # component and service unit tests (Vitest)
+npm run build && npm run e2e  # Playwright smoke test of the production build against a mocked API
 ```
+
+The authorization tests (`AuthorizationTests.cs`) start the API in the Production environment with B2C settings and send it locally signed tokens. They check that missing, expired, wrongly signed or wrong-audience tokens get 401, a token without the scope gets 403, users only see and query their own applications, and admin endpoints are closed to non-admins. The first `npm run e2e` needs `npx playwright install chromium`.
 
 ## Deploy (single App Service)
 
@@ -261,7 +266,7 @@ For a new environment, use the Bicep template and the pipeline described in [Dep
 
 | Workflow | Runs on | What it does |
 | --- | --- | --- |
-| [`ci.yml`](.github/workflows/ci.yml) | every PR, pushes to `main` | **API**: build with .NET code analyzers (warnings fail the build), unit tests, vulnerable NuGet package check. **Client**: ESLint (angular-eslint, incl. accessibility rules), production build, `npm audit`. |
+| [`ci.yml`](.github/workflows/ci.yml) | every PR, pushes to `main` | **API**: build with .NET code analyzers (warnings fail the build), unit and authorization integration tests, vulnerable NuGet package check. **Client**: ESLint (angular-eslint, incl. accessibility rules), Vitest unit tests, production build, Playwright smoke test, `npm audit`. **Infra**: Bicep build and lint. |
 | [`codeql.yml`](.github/workflows/codeql.yml) | PRs to `main`, pushes to `main`, weekly | **CodeQL** security analysis (`security-extended` queries) for C# and TypeScript. Findings appear under *Security → Code scanning*. |
 | [`dependency-review.yml`](.github/workflows/dependency-review.yml) | every PR | Blocks PRs that add npm or NuGet packages with high or critical vulnerabilities. |
 | [`dependabot.yml`](.github/dependabot.yml) | weekly | PRs to update npm, NuGet and GitHub Actions dependencies. |
