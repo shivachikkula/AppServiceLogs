@@ -5,6 +5,8 @@ using AppInsightsLogs.Api.Models;
 using AppInsightsLogs.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using AppInsightsLogs.Api.Options;
 
 namespace AppInsightsLogs.Api.Controllers;
 
@@ -19,6 +21,7 @@ public sealed class QueryController(QueryService queries, KqlAssistant assistant
         Run(appKey, applicationId => queries.GetSchemaAsync(applicationId, cancellationToken), cancellationToken);
 
     [HttpPost("run")]
+    [EnableRateLimiting(RateLimitPolicies.Query)]
     public Task<ActionResult<KqlResult>> RunQuery([FromBody] RunQueryRequest request, CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -35,6 +38,7 @@ public sealed class QueryController(QueryService queries, KqlAssistant assistant
     }
 
     [HttpPost("generate")]
+    [EnableRateLimiting(RateLimitPolicies.Ai)]
     public Task<ActionResult<GeneratedQuery>> Generate([FromBody] GenerateQueryRequest request, CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();

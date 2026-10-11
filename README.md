@@ -80,6 +80,17 @@ Run through this once in each environment, such as test and production:
    - A query with `app("…")` is rejected.
 7. Back on **Admin → Audit log**, confirm the queries from step 6 appear, including the rejected one.
 
+## Security hardening
+
+| Protection | Details |
+| --- | --- |
+| **Security headers** | Every response gets a strict `Content-Security-Policy` (scripts, workers and fonts only from this site; network and frames only to this site and the B2C sign-in host), plus `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy` and `Permissions-Policy`. HSTS is on outside Development. `/api` responses are `Cache-Control: no-store`. The production build doesn't inline critical CSS, so no inline script is needed. |
+| **Rate limits** (per signed-in user) | `RateLimits:ApiPerMinute` (600) for all `/api` calls, `QueryPerMinute` (30) for running KQL and loading timelines, `AiPerMinute` (10) for the AI assistant, and `OverviewPerMinute` (30). Over the limit, the API returns **429** with `Retry-After`. |
+| **Sign-in tokens** | MSAL keeps tokens in `sessionStorage`, so they're cleared when the tab closes. A new tab signs in again silently through the B2C session. |
+| **CORS** | No origins in production, because the UI is served by the API itself. `http://localhost:4200` is allowed only in `appsettings.Development.json`. |
+| **Startup validation** | Outside Development, the app refuses to start if `ConnectionStrings:LogViewerDb` or `KeyVault:VaultUri` is missing, a URL isn't `https://`, a credential name is unknown, or only half of the Azure OpenAI settings are set. The log lists every problem. A broken deployment therefore fails at once (and the health check keeps the old instance) instead of on the first request. |
+| **Forwarded headers** | The app trusts App Service's `X-Forwarded-Proto` / `X-Forwarded-For`, so HTTPS detection and per-IP limits for signed-out requests work behind its front end. |
+
 ## Azure setup
 
 ### 1. Azure AD B2C (user sign-in)
@@ -157,6 +168,9 @@ Users don't need any Azure roles. They only sign in with B2C.
 },
 "Administration": {
   "AdminEmails": ["you@example.com"]  // who sees the Admin page
+},
+"RateLimits": {           // per signed-in user, per minute
+  "ApiPerMinute": 600, "QueryPerMinute": 30, "AiPerMinute": 10, "OverviewPerMinute": 30
 },
 "Query": {
   "MaxResultRows": 10000,  // rows returned to the browser
@@ -277,6 +291,9 @@ In Development the 401 response body contains the reason; in other environments 
 | **401** with *IDX10223: Lifetime validation failed* | The token expired. Sign out and in again, and check the machine's clock. |
 | *'app()' is not allowed* (Query page) | Queries can only read the selected application. Select the other application in the header instead. |
 | Query page: no completions for your columns | The schema request failed (shown above the table list). The editor still completes KQL keywords and functions. |
+| App doesn't start: *Invalid configuration: …* | The log lists every missing or invalid setting. Fix them in the App Service configuration. In Development these are only warnings. |
+| **429** *Too many requests* | A per-user rate limit was reached. Wait for the `Retry-After` seconds, or raise the relevant `RateLimits:*` setting. |
+| Browser console: *Refused to connect/frame … Content Security Policy* | The B2C sign-in host is taken from `AzureAdB2C:Instance`. If you use a B2C custom domain, set `Instance` to that domain. |
 | *Your sign-in token contains no email address* | Tick **Email Addresses** under the user flow's *Application claims*, then sign out and in again. |
 | *No applications are assigned to …* | Add rows for that email (lower case) to `UserApplications`. |
 | *Could not read the UserApplications table* | Check `ConnectionStrings:LogViewerDb`, the SQL firewall, and that `schema.sql` has been run. |
