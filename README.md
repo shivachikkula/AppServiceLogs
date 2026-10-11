@@ -13,6 +13,7 @@ A web app that reads telemetry from **Azure Application Insights** for several a
 The **Application** dropdown in the header lists the applications assigned to the signed-in user. Both pages show data for the selected application. The last selection is remembered per user.
 
 ```
+infra/      Bicep: App Service + slot, Key Vault, SQL, monitoring, role assignments, alerts
 frontend/   Angular 21 SPA (standalone components, signals, MSAL.js for B2C sign-in)
 backend/    ASP.NET Core Web API on .NET 10 + unit tests
 database/   SQL script for the UserApplications table
@@ -254,7 +255,7 @@ cd backend/AppInsightsLogs.Api
 dotnet publish -c Release -o ./publish      # add -p:SkipFrontend=true to publish the API only
 ```
 
-Enable a system-assigned managed identity on the App Service and grant it the roles in [Permissions](#4-permissions-for-the-apis-identity). Set the settings above as App Service application settings, e.g. `AzureAdB2C__SpaClientId`, `KeyVault__VaultUri` and `ConnectionStrings__LogViewerDb`. No credential setting is needed: in Azure the API uses the managed identity automatically. Add the App Service URL as a redirect URI on the B2C SPA registration.
+For a new environment, use the Bicep template and the pipeline described in [Deployment setup](#deployment-setup); they do all of this for you. Manually: enable a system-assigned managed identity on the App Service and grant it the roles in [Permissions](#4-permissions-for-the-apis-identity). Set the settings above as App Service application settings, e.g. `AzureAdB2C__SpaClientId`, `KeyVault__VaultUri` and `ConnectionStrings__LogViewerDb`. No credential setting is needed: in Azure the API uses the managed identity automatically. Add the App Service URL as a redirect URI on the B2C SPA registration.
 
 ## CI/CD and code scanning (GitHub Actions)
 
@@ -264,18 +265,54 @@ Enable a system-assigned managed identity on the App Service and grant it the ro
 | [`codeql.yml`](.github/workflows/codeql.yml) | PRs to `main`, pushes to `main`, weekly | **CodeQL** security analysis (`security-extended` queries) for C# and TypeScript. Findings appear under *Security → Code scanning*. |
 | [`dependency-review.yml`](.github/workflows/dependency-review.yml) | every PR | Blocks PRs that add npm or NuGet packages with high or critical vulnerabilities. |
 | [`dependabot.yml`](.github/dependabot.yml) | weekly | PRs to update npm, NuGet and GitHub Actions dependencies. |
-| [`deploy.yml`](.github/workflows/deploy.yml) | pushes to `main`, manual | Tests, then `dotnet publish` (which also builds the Angular app into `wwwroot`) and deploys the package to **one App Service**. |
+| [`deploy.yml`](.github/workflows/deploy.yml) | pushes to `main`, manual | Tests and `dotnet publish` (which also builds the Angular app into `wwwroot`). Then it updates the database (schema + identity grants), deploys to the **staging slot**, waits for `/healthz` and **swaps** into production. |
 
 All of these tools are free for public repositories. Also turn on **Settings → Code security**: *Dependabot alerts*, *Dependabot security updates*, *Secret scanning* and *Push protection* (free for public repos). Make `main` the **default branch** (Settings → General), because CodeQL's weekly scan and Dependabot run against the default branch.
 
 ### Deployment setup
 
-1. **Create the App Service**: Linux, runtime stack **.NET 10**. Enable its system-assigned managed identity, grant the roles in [Permissions](#4-permissions-for-the-apis-identity), and add the app settings from [Configuration](#configuration), e.g. `AzureAdB2C__SpaClientId` and `KeyVault__VaultUri`.
-2. In GitHub, go to **Settings → Secrets and variables → Actions** and add the **variable** `AZURE_WEBAPP_NAME` (the App Service name).
-3. Choose how the workflow signs in to Azure:
-   - **Option A: OpenID Connect (recommended, no stored password).** Create an app registration or user-assigned managed identity. Add a *federated credential* for GitHub Actions: repository `shivachikkula/AppServiceLogs`, entity *Environment*, name `production`. Give it the **Website Contributor** role on the App Service. Then add the variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID`.
-   - **Option B: publish profile (no Entra ID permissions needed).** In the App Service, turn on *Configuration → General settings → SCM Basic Auth Publishing Credentials*, then *Download publish profile*. Store the file's contents as the **secret** `AZURE_WEBAPP_PUBLISH_PROFILE`. The workflow uses this option when `AZURE_CLIENT_ID` is not set.
-4. Optionally add required reviewers to the `production` environment (Settings → Environments), so each deployment waits for approval.
+**1. Create the Azure resources with Bicep** ([`infra/main.bicep`](infra/main.bicep)). Copy `infra/main.example.bicepparam` to e.g. `infra/main.prod.bicepparam`, fill it in, and deploy once per environment:
+
+```bash
+az group create -n osse-logviewer-prod-rg -l eastus
+az deployment group create -g osse-logviewer-prod-rg -f infra/main.bicep -p infra/main.prod.bicepparam
+```
+
+This creates:
+- The App Service plan and web app: Linux, .NET 10, HTTPS only, health check `/healthz`, basic-auth publishing off, and a **staging slot**. The app and the slot each have a system-assigned managed identity.
+- All app settings and the SQL connection string (`Authentication=Active Directory Managed Identity`).
+- The viewer's own Application Insights and Log Analytics.
+- Key Vault with RBAC, purge protection and **Key Vault Secrets User** for both identities. Set `createKeyVault = false` to use an existing vault in the group.
+- Azure SQL with Microsoft Entra-only authentication, administered by an Entra group you name.
+- **Monitoring Reader** for both identities on every Application Insights resource in `monitoredAppInsightsIds`, including ones in other resource groups or subscriptions.
+- Alerts for HTTP 5xx, the health check and slow responses, sent to `alertEmail`.
+
+CI builds and lints the templates on every PR.
+
+**2. Sign GitHub in to Azure with OpenID Connect.** Create an app registration or user-assigned identity and add a *federated credential* for GitHub Actions: repository `shivachikkula/AppServiceLogs`, entity *Environment*, name `production`. Then:
+- Give it **Website Contributor** on the web app, and **SQL Server Contributor** on the SQL server (for the temporary firewall rule).
+- Add it to the SQL admin group, so the pipeline can run the database scripts.
+
+**3. Repository variables** (Settings → Secrets and variables → Actions → Variables):
+
+| Variable | Value |
+| --- | --- |
+| `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | The identity from step 2 |
+| `AZURE_WEBAPP_NAME` | `webAppName` output of the Bicep deployment |
+| `AZURE_RESOURCE_GROUP` | The resource group |
+| `SQL_SERVER_NAME` | `sqlServerName` output. The pipeline then runs `database/schema.sql` and `database/grant-app-identity.sql` on every deployment; both are safe to re-run. |
+| `USE_STAGING_SLOT` | `true`: deploy to the staging slot, wait for its `/healthz`, then **swap**. Production is only touched if staging is healthy. |
+
+**4. Approvals.** Add required reviewers to the `production` environment (Settings → Environments), so each deployment waits for approval.
+
+Every deployment ends by checking production `/healthz`.
+
+<details><summary>Without OpenID Connect (publish profile)</summary>
+
+If you can't create a federated identity, store the App Service publish profile as the secret `AZURE_WEBAPP_PUBLISH_PROFILE` and leave `AZURE_CLIENT_ID` unset. The workflow then deploys straight to production, with no database step and no slot. Publish profiles need *SCM Basic Auth Publishing Credentials* turned on, which the Bicep template turns off, so this option is for manually created App Services only.
+</details>
+
+All GitHub Actions are pinned to commit SHAs (with the version in a comment). Dependabot proposes updates.
 
 ## API
 
