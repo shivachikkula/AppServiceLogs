@@ -37,7 +37,16 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<AzureCredentials>().De
 // Key Vault has its own credential: the managed identity whenever the app runs in Azure.
 builder.Services.AddKeyedSingleton(AzureCredentials.KeyVaultKey, (sp, _) => sp.GetRequiredService<AzureCredentials>().KeyVault);
 
-builder.Services.AddHttpClient<AppInsightsQueryClient>(client => client.Timeout = TimeSpan.FromSeconds(60));
+// Retries (429/5xx/timeouts, honouring Retry-After), per-attempt timeout and a circuit breaker for Application
+// Insights. KQL can legitimately take tens of seconds, so the attempt timeout is generous.
+builder.Services.AddHttpClient<AppInsightsQueryClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .AddStandardResilienceHandler(options =>
+    {
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(60);
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(150);
+        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(120);
+        options.Retry.MaxRetryAttempts = 2;
+    });
 builder.Services.AddScoped<TelemetryService>();
 builder.Services.AddScoped<ApplicationCatalog>();
 builder.Services.AddScoped<QueryService>();
@@ -47,7 +56,16 @@ builder.Services.AddScoped<OperationService>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddScoped<DiagnosticsService>();
 builder.Services.AddHealthChecks().AddDbContextCheck<LogViewerDbContext>("database");
-builder.Services.AddHttpClient<KqlAssistant>(client => client.Timeout = TimeSpan.FromSeconds(60));
+builder.Services.AddHttpClient<KqlAssistant>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .AddStandardResilienceHandler(options =>
+    {
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(60);
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(130);
+        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(120);
+        options.Retry.MaxRetryAttempts = 1;
+    });
+builder.Services.Configure<CachingOptions>(builder.Configuration.GetSection(CachingOptions.SectionName));
+builder.Services.AddSingleton<QueryCache>();
 builder.Services.AddSingleton<ISecretProvider, KeyVaultSecretProvider>();
 builder.Services.AddMemoryCache();
 

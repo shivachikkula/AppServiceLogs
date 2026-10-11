@@ -109,6 +109,12 @@ Suggested alerts (the Bicep template in `infra/` creates the first three):
 - slow responses
 - a jump in `osse.access_denied` or `osse.rate_limited`
 
+## Reliability and load
+
+- **Retries and timeouts:** calls to Application Insights and Azure OpenAI go through .NET's standard resilience pipeline. It retries 429, 5xx and timeouts (honouring `Retry-After`), uses per-attempt and total timeouts (60 s / 150 s for KQL), and has a circuit breaker. Key Vault and SQL use their SDKs' built-in retries.
+- **Short server-side caches:** **Overview** (60 s), **Exceptions** (30 s) and **Operation timeline** (60 s) results are cached per application and filter, so many people watching the same app share one set of queries. The user's access is checked before the cache is used. **Refresh** and auto-refresh always fetch fresh data. Tune with `Caching:OverviewSeconds`, `ExceptionsSeconds` and `OperationSeconds`; `0` disables a cache.
+- **Hidden tabs don't poll:** **Live logs** stops polling while the browser tab is hidden and catches up as soon as it's visible again. The Exceptions auto-refresh also skips hidden tabs.
+
 ## Azure setup
 
 ### 1. Azure AD B2C (user sign-in)
@@ -187,6 +193,7 @@ Users don't need any Azure roles. They only sign in with B2C.
 "Administration": {
   "AdminEmails": ["you@example.com"]  // who sees the Admin page
 },
+"Caching": { "OverviewSeconds": 60, "ExceptionsSeconds": 30, "OperationSeconds": 60 },
 "RateLimits": {           // per signed-in user, per minute
   "ApiPerMinute": 600, "QueryPerMinute": 30, "AiPerMinute": 10, "OverviewPerMinute": 30
 },

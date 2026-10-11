@@ -30,8 +30,8 @@ export class TelemetryApiService {
     return this.http.get<ApplicationSummary[]>('/api/applications');
   }
 
-  getOverview(appKey: string, rangeMinutes: number): Observable<OverviewResponse> {
-    return this.http.get<OverviewResponse>('/api/overview', { params: toParams({ appKey, rangeMinutes }) });
+  getOverview(appKey: string, rangeMinutes: number, fresh = false): Observable<OverviewResponse> {
+    return this.http.get<OverviewResponse>('/api/overview', { params: toParams({ appKey, rangeMinutes, fresh: fresh || undefined }) });
   }
 
   getOperation(appKey: string, operationId: string, around?: string | null): Observable<OperationTimeline> {
@@ -67,9 +67,9 @@ export class TelemetryApiService {
   }
 
   getExceptionSummary(filter: ExceptionsFilter): Observable<ExceptionGroup[]> {
-    const { appKey, rangeMinutes, search, roleName } = filter;
+    const { appKey, rangeMinutes, search, roleName, fresh } = filter;
     return this.http.get<ExceptionGroup[]>('/api/exceptions/summary', {
-      params: toParams({ appKey, rangeMinutes, search, roleName }),
+      params: toParams({ appKey, rangeMinutes, search, roleName, fresh: fresh || undefined }),
     });
   }
 

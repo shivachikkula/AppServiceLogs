@@ -78,7 +78,8 @@ export class Exceptions {
     });
   }
 
-  protected load(): void {
+  /** @param fresh bypass the server's short cache (Refresh button, auto-refresh). */
+  protected load(fresh = false): void {
     const appKey = this.appContext.selectedKey();
     if (!appKey) {
       return;
@@ -94,6 +95,7 @@ export class Exceptions {
       roleName: this.roleName().trim(),
       problemId: this.problemId() ?? undefined,
       take: 300,
+      fresh,
     };
 
     this.loadSub = forkJoin({
@@ -122,7 +124,12 @@ export class Exceptions {
     this.autoRefresh.set(enabled);
     clearInterval(this.timer);
     if (enabled) {
-      this.timer = setInterval(() => this.load(), 30_000);
+      // Hidden tabs don't refresh; the next tick after the tab becomes visible does.
+      this.timer = setInterval(() => {
+        if (!document.hidden) {
+          this.load(true);
+        }
+      }, 30_000);
     }
   }
 
